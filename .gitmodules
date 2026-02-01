@@ -2,3 +2,6 @@
 	path = DevContainers
 	url = git@github.com:Hadi-Hajieghrary/DevContainers.git
 	branch = Drake
+[submodule "drake"]
+	path = drake
+	url = git@github.com:RobotLocomotion/drake.git
