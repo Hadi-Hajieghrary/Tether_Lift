@@ -21,10 +21,16 @@ QuadcopterLiftController::QuadcopterLiftController(
     : plant_(plant),
       quad_body_index_(quadcopter_body.index()),
       mass_(quadcopter_body.default_mass()),
+      formation_offset_(params.formation_offset),
+      waypoints_(params.waypoints),
+      use_waypoints_(!params.waypoints.empty()),
       initial_altitude_(params.initial_altitude),
       final_altitude_(params.final_altitude),
       ascent_start_time_(params.ascent_start_time),
       climb_rate_(params.climb_rate),
+      position_kp_(params.position_kp),
+      position_kd_(params.position_kd),
+      max_tilt_angle_(params.max_tilt_angle),
       altitude_kp_(params.altitude_kp),
       altitude_kd_(params.altitude_kd),
       attitude_kp_(params.attitude_kp),
@@ -40,7 +46,7 @@ QuadcopterLiftController::QuadcopterLiftController(
       max_torque_(params.max_torque),
       gravity_(params.gravity) {
 
-  // Pre-compute ascent duration
+  // Pre-compute ascent duration (for legacy trajectory mode)
   const double altitude_change = final_altitude_ - initial_altitude_;
   ascent_duration_ = (climb_rate_ > 0.0) ?
       std::abs(altitude_change) / climb_rate_ : 0.0;
@@ -62,6 +68,73 @@ QuadcopterLiftController::QuadcopterLiftController(
       "control_force",
       &QuadcopterLiftController::CalcControlForce)
       .get_index();
+}
+
+void QuadcopterLiftController::ComputeTrajectory(
+    double t, Eigen::Vector3d& pos_des, Eigen::Vector3d& vel_des) const {
+
+  if (use_waypoints_ && !waypoints_.empty()) {
+    // Waypoint-based trajectory with linear interpolation
+    // Find current segment
+    double segment_start_time = 0.0;
+    for (size_t i = 0; i < waypoints_.size(); ++i) {
+      const auto& wp = waypoints_[i];
+      const double segment_end_time = wp.arrival_time;
+      const double hold_end_time = segment_end_time + wp.hold_time;
+
+      if (t <= segment_end_time) {
+        // In transit to waypoint i
+        if (i == 0) {
+          // First waypoint: already at initial position
+          pos_des = wp.position + formation_offset_;
+          vel_des.setZero();
+        } else {
+          // Interpolate from previous waypoint
+          const auto& prev_wp = waypoints_[i - 1];
+          const double segment_duration = segment_end_time - segment_start_time;
+          if (segment_duration > 1e-6) {
+            const double alpha = (t - segment_start_time) / segment_duration;
+            pos_des = (1.0 - alpha) * prev_wp.position + alpha * wp.position + formation_offset_;
+            vel_des = (wp.position - prev_wp.position) / segment_duration;
+          } else {
+            pos_des = wp.position + formation_offset_;
+            vel_des.setZero();
+          }
+        }
+        return;
+      } else if (t <= hold_end_time) {
+        // Holding at waypoint i
+        pos_des = wp.position + formation_offset_;
+        vel_des.setZero();
+        return;
+      }
+      segment_start_time = hold_end_time;
+    }
+
+    // Past all waypoints: hold at final waypoint
+    pos_des = waypoints_.back().position + formation_offset_;
+    vel_des.setZero();
+
+  } else {
+    // Legacy altitude-only trajectory (for backward compatibility)
+    double desired_altitude;
+    double desired_velocity_z;
+
+    if (t <= ascent_start_time_ || climb_rate_ <= 0.0) {
+      desired_altitude = initial_altitude_;
+      desired_velocity_z = 0.0;
+    } else if (t >= ascent_start_time_ + ascent_duration_) {
+      desired_altitude = final_altitude_;
+      desired_velocity_z = 0.0;
+    } else {
+      const double elapsed = t - ascent_start_time_;
+      desired_altitude = initial_altitude_ + ascent_direction_ * climb_rate_ * elapsed;
+      desired_velocity_z = ascent_direction_ * climb_rate_;
+    }
+
+    pos_des = Eigen::Vector3d(formation_offset_.x(), formation_offset_.y(), desired_altitude);
+    vel_des = Eigen::Vector3d(0.0, 0.0, desired_velocity_z);
+  }
 }
 
 void QuadcopterLiftController::CalcControlForce(
@@ -89,21 +162,9 @@ void QuadcopterLiftController::CalcControlForce(
   const auto& pose_world = plant_.EvalBodyPoseInWorld(*plant_context, quad_body);
   const auto& velocity_world = plant_.EvalBodySpatialVelocityInWorld(*plant_context, quad_body);
 
-  // Compute desired altitude trajectory
-  double desired_altitude;
-  double desired_velocity_z;
-
-  if (t <= ascent_start_time_ || climb_rate_ <= 0.0) {
-    desired_altitude = initial_altitude_;
-    desired_velocity_z = 0.0;
-  } else if (t >= ascent_start_time_ + ascent_duration_) {
-    desired_altitude = final_altitude_;
-    desired_velocity_z = 0.0;
-  } else {
-    const double elapsed = t - ascent_start_time_;
-    desired_altitude = initial_altitude_ + ascent_direction_ * climb_rate_ * elapsed;
-    desired_velocity_z = ascent_direction_ * climb_rate_;
-  }
+  // Compute desired trajectory
+  Eigen::Vector3d pos_des, vel_des;
+  ComputeTrajectory(t, pos_des, vel_des);
 
   // === Tension-Aware Pickup Logic ===
   bool in_pickup_phase = false;
@@ -123,18 +184,31 @@ void QuadcopterLiftController::CalcControlForce(
       altitude_adjustment = std::clamp(altitude_adjustment,
                                        -tension_altitude_max_,
                                        tension_altitude_max_);
-      desired_altitude += altitude_adjustment;
+      pos_des.z() += altitude_adjustment;
     }
   }
 
-  // === Altitude Controller (PD) ===
+  // === Position Controller (PD) ===
   const Eigen::Vector3d translation = pose_world.translation();
   const Eigen::Vector3d translational_vel = velocity_world.translational();
 
-  const double altitude_error = desired_altitude - translation[2];
-  const double velocity_error = desired_velocity_z - translational_vel[2];
+  // Position and velocity errors
+  const Eigen::Vector3d pos_error = pos_des - translation;
+  const Eigen::Vector3d vel_error = vel_des - translational_vel;
 
-  const double commanded_accel_z = altitude_kp_ * altitude_error + altitude_kd_ * velocity_error;
+  // X/Y position control -> desired tilt angles
+  // Desired acceleration in x/y
+  const double ax_des = position_kp_ * pos_error.x() + position_kd_ * vel_error.x();
+  const double ay_des = position_kp_ * pos_error.y() + position_kd_ * vel_error.y();
+
+  // Convert to desired tilt angles (small angle approximation)
+  // For a quadcopter: pitch forward (positive pitch) -> move in +x
+  //                   roll right (positive roll) -> move in +y
+  double pitch_des = std::clamp(ax_des / gravity_, -max_tilt_angle_, max_tilt_angle_);
+  double roll_des = std::clamp(-ay_des / gravity_, -max_tilt_angle_, max_tilt_angle_);
+
+  // Altitude control (z)
+  const double commanded_accel_z = altitude_kp_ * pos_error.z() + altitude_kd_ * vel_error.z();
   double thrust = mass_ * (gravity_ + commanded_accel_z);
 
   // Add tension feedforward and feedback
@@ -153,10 +227,16 @@ void QuadcopterLiftController::CalcControlForce(
   // === Attitude Controller (PD) ===
   const Eigen::Matrix3d R = pose_world.rotation().matrix();
 
-  // Attitude error from skew-symmetric part (inlined)
-  const double attitude_error_x = 0.5 * (R(2, 1) - R(1, 2));
-  const double attitude_error_y = 0.5 * (R(0, 2) - R(2, 0));
-  const double attitude_error_z = 0.5 * (R(1, 0) - R(0, 1));
+  // Current attitude errors (from identity)
+  // Using small-angle approximation for roll/pitch from rotation matrix
+  const double current_roll = std::atan2(R(2, 1), R(2, 2));
+  const double current_pitch = std::asin(-R(2, 0));
+  const double current_yaw_error = 0.5 * (R(1, 0) - R(0, 1));  // Keep yaw at zero
+
+  // Attitude errors (tracking desired roll/pitch)
+  const double roll_error = roll_des - current_roll;
+  const double pitch_error = pitch_des - current_pitch;
+  const double yaw_error = -current_yaw_error;  // Stabilize to zero yaw
 
   // Angular velocity in body frame: omega_B = R^T * omega_W
   const Eigen::Vector3d omega_W = velocity_world.rotational();
@@ -165,9 +245,9 @@ void QuadcopterLiftController::CalcControlForce(
   const double omega_Bz = R(0, 2) * omega_W[0] + R(1, 2) * omega_W[1] + R(2, 2) * omega_W[2];
 
   // PD control for torque
-  double tau_x = -attitude_kp_ * attitude_error_x - attitude_kd_ * omega_Bx;
-  double tau_y = -attitude_kp_ * attitude_error_y - attitude_kd_ * omega_By;
-  double tau_z = -attitude_kp_ * attitude_error_z - attitude_kd_ * omega_Bz;
+  double tau_x = attitude_kp_ * roll_error - attitude_kd_ * omega_Bx;
+  double tau_y = attitude_kp_ * pitch_error - attitude_kd_ * omega_By;
+  double tau_z = attitude_kp_ * yaw_error - attitude_kd_ * omega_Bz;
 
   // Saturate torque
   tau_x = std::clamp(tau_x, -max_torque_, max_torque_);

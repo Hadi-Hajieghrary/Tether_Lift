@@ -27,6 +27,7 @@ add_executable(quad_rope_lift
     src/quadcopter_controller.cc
     src/rope_visualizer.cc
     src/rope_utils.cc
+    src/tension_plotter.cc
 )
 
 target_include_directories(quad_rope_lift PRIVATE

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Eigen/Core>
+#include <vector>
 #include <drake/multibody/plant/externally_applied_spatial_force.h>
 #include <drake/multibody/plant/multibody_plant.h>
 #include <drake/systems/framework/basic_vector.h>
@@ -8,15 +9,33 @@
 
 namespace quad_rope_lift {
 
+/// A waypoint in the trajectory with position and timing.
+struct TrajectoryWaypoint {
+  Eigen::Vector3d position{0, 0, 1};  ///< Target position [x, y, z] in world frame [m]
+  double arrival_time = 0.0;           ///< Time to arrive at this waypoint [s]
+  double hold_time = 0.0;              ///< Time to hold at this waypoint before moving to next [s]
+};
+
 /// Controller parameters struct for cleaner initialization.
 struct ControllerParams {
-  // Trajectory parameters
+  // Formation offset (relative to trajectory waypoints)
+  Eigen::Vector3d formation_offset{0, 0, 0};  ///< Offset from shared trajectory [m]
+
+  // Trajectory parameters (legacy - used if waypoints empty)
   double initial_altitude = 1.0;       ///< Starting hover height [m]
   double final_altitude = 3.0;         ///< Target altitude after lifting payload [m]
   double ascent_start_time = 0.5;      ///< Time to begin ascending [s]
   double climb_rate = 0.4;             ///< Vertical velocity during ascent [m/s]
 
-  // Altitude control gains
+  // Waypoint-based trajectory (if non-empty, overrides legacy trajectory)
+  std::vector<TrajectoryWaypoint> waypoints;
+
+  // Position control gains (x/y)
+  double position_kp = 10.0;           ///< Proportional gain for x/y position control
+  double position_kd = 6.0;            ///< Derivative gain for x/y position control
+  double max_tilt_angle = 0.3;         ///< Maximum tilt angle for x/y control [rad] (~17 deg)
+
+  // Altitude control gains (z)
   double altitude_kp = 15.0;           ///< Proportional gain for altitude control
   double altitude_kd = 8.0;            ///< Derivative gain for altitude control
 
@@ -31,7 +50,7 @@ struct ControllerParams {
 
   // Pickup phase parameters
   double pickup_ramp_duration = 2.0;   ///< Time to ramp up tension target during pickup [s]
-  double pickup_target_tension = 20.0; ///< Final target rope tension (≈ payload weight) [N]
+  double pickup_target_tension = 20.0; ///< Final target rope tension (≈ payload weight/N_quads) [N]
   double pickup_detection_threshold = 1.0; ///< Tension level that triggers pickup mode [N]
 
   // Actuator limits
@@ -46,9 +65,11 @@ struct ControllerParams {
 /// Controller for quadcopter payload pickup and lift.
 ///
 /// This controller implements:
-/// 1. Altitude control: PD controller to track a height trajectory.
-/// 2. Attitude control: PD controller to maintain upright orientation.
+/// 1. Position control: PD controller to track x/y/z trajectory with formation offset.
+/// 2. Attitude control: PD controller to maintain desired orientation.
 /// 3. Tension-aware pickup: Smooth load transfer using rope tension feedback.
+///
+/// Supports both legacy single-altitude trajectory and waypoint-based trajectories.
 class QuadcopterLiftController final : public drake::systems::LeafSystem<double> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(QuadcopterLiftController);
@@ -87,6 +108,9 @@ class QuadcopterLiftController final : public drake::systems::LeafSystem<double>
       const drake::systems::Context<double>& context,
       std::vector<drake::multibody::ExternallyAppliedSpatialForce<double>>* output) const;
 
+  /// Compute desired position and velocity at time t.
+  void ComputeTrajectory(double t, Eigen::Vector3d& pos_des, Eigen::Vector3d& vel_des) const;
+
   // Plant reference
   const drake::multibody::MultibodyPlant<double>& plant_;
 
@@ -96,7 +120,14 @@ class QuadcopterLiftController final : public drake::systems::LeafSystem<double>
   // Mass (mutable for set_mass)
   mutable double mass_;
 
-  // Trajectory parameters
+  // Formation offset
+  Eigen::Vector3d formation_offset_;
+
+  // Waypoint trajectory
+  std::vector<TrajectoryWaypoint> waypoints_;
+  bool use_waypoints_;
+
+  // Legacy trajectory parameters
   double initial_altitude_;
   double final_altitude_;
   double ascent_start_time_;
@@ -105,6 +136,9 @@ class QuadcopterLiftController final : public drake::systems::LeafSystem<double>
   double ascent_direction_;
 
   // Control gains
+  double position_kp_;
+  double position_kd_;
+  double max_tilt_angle_;
   double altitude_kp_;
   double altitude_kd_;
   double attitude_kp_;
