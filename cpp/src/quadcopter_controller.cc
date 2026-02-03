@@ -63,10 +63,25 @@ QuadcopterLiftController::QuadcopterLiftController(
       BasicVector<double>(4))
       .get_index();
 
+  // Optional estimated state input [px, py, pz, vx, vy, vz]
+  // When connected, overrides position/velocity from plant_state
+  estimated_state_port_ = DeclareVectorInputPort(
+      "estimated_state",
+      BasicVector<double>(6))
+      .get_index();
+
   // Declare output port for control forces
   control_port_ = DeclareAbstractOutputPort(
       "control_force",
       &QuadcopterLiftController::CalcControlForce)
+      .get_index();
+
+  // Declare output port for control vector (for logging)
+  // [tau_x, tau_y, tau_z, f_x, f_y, f_z]
+  control_vector_port_ = DeclareVectorOutputPort(
+      "control_vector",
+      6,
+      &QuadcopterLiftController::CalcControlVector)
       .get_index();
 }
 
@@ -146,7 +161,7 @@ void QuadcopterLiftController::CalcControlForce(
   const auto& tension_data = get_input_port(tension_port_).Eval(context);
   const double measured_tension = tension_data[0];
 
-  // Create plant context and set state
+  // Create plant context and set state (needed for attitude)
   auto plant_context = plant_.CreateDefaultContext();
   plant_.SetPositionsAndVelocities(plant_context.get(), state_vector);
 
@@ -157,10 +172,27 @@ void QuadcopterLiftController::CalcControlForce(
     pickup_start_time_ = t;
   }
 
-  // Get quadcopter pose and velocity
+  // Get quadcopter pose and velocity from plant (for attitude)
   const auto& quad_body = plant_.get_body(quad_body_index_);
   const auto& pose_world = plant_.EvalBodyPoseInWorld(*plant_context, quad_body);
   const auto& velocity_world = plant_.EvalBodySpatialVelocityInWorld(*plant_context, quad_body);
+
+  // === Get position/velocity (from estimated state if connected, else from plant) ===
+  Eigen::Vector3d translation;
+  Eigen::Vector3d translational_vel;
+
+  // Check if estimated state port is connected by checking if it has a value
+  const auto& est_port = get_input_port(estimated_state_port_);
+  if (est_port.HasValue(context)) {
+    // Use estimated state
+    const auto& estimated = est_port.Eval(context);
+    translation = Eigen::Vector3d(estimated[0], estimated[1], estimated[2]);
+    translational_vel = Eigen::Vector3d(estimated[3], estimated[4], estimated[5]);
+  } else {
+    // Use ground truth from plant
+    translation = pose_world.translation();
+    translational_vel = velocity_world.translational();
+  }
 
   // Compute desired trajectory
   Eigen::Vector3d pos_des, vel_des;
@@ -189,8 +221,6 @@ void QuadcopterLiftController::CalcControlForce(
   }
 
   // === Position Controller (PD) ===
-  const Eigen::Vector3d translation = pose_world.translation();
-  const Eigen::Vector3d translational_vel = velocity_world.translational();
 
   // Position and velocity errors
   const Eigen::Vector3d pos_error = pos_des - translation;
@@ -270,6 +300,29 @@ void QuadcopterLiftController::CalcControlForce(
   control_wrench.p_BoBq_B = Eigen::Vector3d::Zero();
   control_wrench.F_Bq_W = SpatialForce<double>(torque_world, force_world);
   output->push_back(control_wrench);
+}
+
+void QuadcopterLiftController::CalcControlVector(
+    const Context<double>& context,
+    BasicVector<double>* output) const {
+  // Create a temporary output and call CalcControlForce
+  std::vector<ExternallyAppliedSpatialForce<double>> forces;
+  CalcControlForce(context, &forces);
+
+  if (!forces.empty()) {
+    const auto& F = forces[0].F_Bq_W;
+    // [tau_x, tau_y, tau_z, f_x, f_y, f_z]
+    output->SetAtIndex(0, F.rotational()(0));
+    output->SetAtIndex(1, F.rotational()(1));
+    output->SetAtIndex(2, F.rotational()(2));
+    output->SetAtIndex(3, F.translational()(0));
+    output->SetAtIndex(4, F.translational()(1));
+    output->SetAtIndex(5, F.translational()(2));
+  } else {
+    for (int i = 0; i < 6; ++i) {
+      output->SetAtIndex(i, 0.0);
+    }
+  }
 }
 
 }  // namespace quad_rope_lift

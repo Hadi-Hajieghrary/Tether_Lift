@@ -94,9 +94,21 @@ class QuadcopterLiftController final : public drake::systems::LeafSystem<double>
     return get_input_port(tension_port_);
   }
 
+  /// Returns the input port for estimated state [px, py, pz, vx, vy, vz].
+  /// When connected, the controller uses this instead of extracting from plant_state.
+  const drake::systems::InputPort<double>& get_estimated_state_input_port() const {
+    return get_input_port(estimated_state_port_);
+  }
+
   /// Returns the output port for control forces.
   const drake::systems::OutputPort<double>& get_control_output_port() const {
     return get_output_port(control_port_);
+  }
+
+  /// Returns the output port for control vector [tau_x, tau_y, tau_z, f_x, f_y, f_z].
+  /// This is for logging purposes.
+  const drake::systems::OutputPort<double>& get_control_vector_output_port() const {
+    return get_output_port(control_vector_port_);
   }
 
   /// Update the quadcopter mass (call after welding visual model).
@@ -107,6 +119,10 @@ class QuadcopterLiftController final : public drake::systems::LeafSystem<double>
   void CalcControlForce(
       const drake::systems::Context<double>& context,
       std::vector<drake::multibody::ExternallyAppliedSpatialForce<double>>* output) const;
+
+  void CalcControlVector(
+      const drake::systems::Context<double>& context,
+      drake::systems::BasicVector<double>* output) const;
 
   /// Compute desired position and velocity at time t.
   void ComputeTrajectory(double t, Eigen::Vector3d& pos_des, Eigen::Vector3d& vel_des) const;
@@ -166,7 +182,9 @@ class QuadcopterLiftController final : public drake::systems::LeafSystem<double>
   // Port indices
   int plant_state_port_{-1};
   int tension_port_{-1};
+  int estimated_state_port_{-1};
   int control_port_{-1};
+  int control_vector_port_{-1};
 };
 
 }  // namespace quad_rope_lift

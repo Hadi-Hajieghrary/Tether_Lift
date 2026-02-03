@@ -24,6 +24,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <random>
 
 #include <Eigen/Core>
 
@@ -49,6 +50,13 @@
 #include "rope_utils.h"
 #include "rope_visualizer.h"
 #include "tension_plotter.h"
+#include "gps_sensor.h"
+#include "position_velocity_estimator.h"
+#include "load_estimator.h"
+#include "estimation_utils.h"
+#include "estimation_error_computer.h"
+#include "trajectory_visualizer.h"
+#include "simulation_data_logger.h"
 
 namespace quad_rope_lift
 {
@@ -82,7 +90,9 @@ namespace quad_rope_lift
         Eigen::Vector3d initial_position;     ///< Initial (x, y, z) position [m]
         Eigen::Vector3d formation_offset;     ///< Offset from shared trajectory [m]
         Eigen::Vector3d payload_attachment;   ///< Attachment point on payload surface [m]
-        double rope_length;                   ///< Rope rest length [m]
+        double rope_length_mean;              ///< Expected rope rest length [m]
+        double rope_length_stddev;            ///< Standard deviation of rope length measurement [m]
+        double rope_length;                   ///< Actual rope rest length (sampled) [m]
     };
 
     int DoMain()
@@ -96,6 +106,24 @@ namespace quad_rope_lift
 
         // Total simulation duration
         const double simulation_duration = 15.0; // [s]
+
+        // =========================================================================
+        // State Estimation Configuration
+        // =========================================================================
+
+        // Enable GPS-based state estimation (false = use ground truth)
+        const bool enable_estimation = true;
+
+        // Use estimated state in controller (false = run estimator but use ground truth in controller)
+        // Set to false to test estimator accuracy without feedback effects
+        const bool use_estimated_in_controller = false;
+
+        // GPS sensor parameters
+        const double gps_sample_period = 0.1;  // [s] (10 Hz)
+        const Eigen::Vector3d gps_position_noise(0.02, 0.02, 0.05);  // [m] stddev
+
+        // Estimator update rate (should match or be faster than GPS)
+        const double estimator_dt = 0.01;  // [s] (100 Hz)
 
         // =========================================================================
         // Physical Properties
@@ -132,6 +160,33 @@ namespace quad_rope_lift
         const double formation_radius = 0.5;  // [m] - horizontal distance from payload center
         const double attachment_radius = payload_radius * 0.7;  // Attachment points on payload top
 
+        // =========================================================================
+        // Rope Length Distribution Parameters (per quadcopter)
+        // Each rope length is sampled from N(mean, stddev^2)
+        // =========================================================================
+
+        // Expected rope lengths for each quadcopter [m]
+        std::vector<double> rope_length_means = {1.0, 1.1, 0.95};
+
+        // Standard deviations representing measurement uncertainty [m]
+        std::vector<double> rope_length_stddevs = {0.05, 0.08, 0.06};
+
+        // Resize if num_quadcopters doesn't match (use last value for extras)
+        while (rope_length_means.size() < static_cast<size_t>(num_quadcopters)) {
+            rope_length_means.push_back(rope_length_means.back());
+            rope_length_stddevs.push_back(rope_length_stddevs.back());
+        }
+
+        // Random number generator for Gaussian sampling
+        // Use a fixed seed for reproducibility (change seed for different runs)
+        const unsigned int random_seed = 42;  // Change this for different random realizations
+        std::default_random_engine generator(random_seed);
+
+        std::cout << "\n========================================" << std::endl;
+        std::cout << "Rope Length Sampling (Gaussian)" << std::endl;
+        std::cout << "========================================" << std::endl;
+        std::cout << "Random seed: " << random_seed << std::endl;
+
         for (int i = 0; i < num_quadcopters; ++i) {
             const double angle = 2.0 * M_PI * i / num_quadcopters;
             const double x = formation_radius * std::cos(angle);
@@ -143,8 +198,27 @@ namespace quad_rope_lift
                 attachment_radius * std::cos(angle),
                 attachment_radius * std::sin(angle),
                 payload_radius);  // Top of payload
-            quad_configs[i].rope_length = 1.0;  // Can vary per quad if desired
+
+            // Store distribution parameters
+            quad_configs[i].rope_length_mean = rope_length_means[i];
+            quad_configs[i].rope_length_stddev = rope_length_stddevs[i];
+
+            // Sample rope length from Gaussian distribution
+            std::normal_distribution<double> distribution(
+                quad_configs[i].rope_length_mean,
+                quad_configs[i].rope_length_stddev);
+            quad_configs[i].rope_length = distribution(generator);
+
+            // Ensure rope length is positive (re-sample if needed)
+            while (quad_configs[i].rope_length <= 0.1) {  // Minimum 10cm
+                quad_configs[i].rope_length = distribution(generator);
+            }
+
+            std::cout << "Quad " << i << ": mean=" << quad_configs[i].rope_length_mean
+                      << "m, stddev=" << quad_configs[i].rope_length_stddev
+                      << "m -> sampled=" << quad_configs[i].rope_length << "m" << std::endl;
         }
+        std::cout << "========================================\n" << std::endl;
 
         // =========================================================================
         // Trajectory Waypoints (shared by all quadcopters, plus formation offset)
@@ -172,7 +246,14 @@ namespace quad_rope_lift
         // Each rope carries payload_weight / num_quadcopters
         const double max_stretch_percentage = 0.15; // 15% stretch
         const double load_per_rope = (payload_mass * gravity) / num_quadcopters;
-        const double avg_rope_length = quad_configs[0].rope_length;
+
+        // Compute average sampled rope length for stiffness calculations
+        double avg_rope_length = 0.0;
+        for (int i = 0; i < num_quadcopters; ++i) {
+            avg_rope_length += quad_configs[i].rope_length;
+        }
+        avg_rope_length /= num_quadcopters;
+        std::cout << "Average sampled rope length: " << avg_rope_length << "m\n" << std::endl;
 
         const double effective_rope_stiffness =
             load_per_rope / (avg_rope_length * max_stretch_percentage);
@@ -404,6 +485,115 @@ namespace quad_rope_lift
         }
 
         // -------------------------------------------------------------------------
+        // Create GPS Sensors and State Estimators (optional)
+        // -------------------------------------------------------------------------
+
+        std::vector<GpsSensor*> quad_gps_sensors;
+        std::vector<PositionVelocityEstimator*> quad_estimators;
+        GpsSensor* load_gps_sensor = nullptr;
+        LoadStateEstimator* load_estimator = nullptr;
+
+        if (enable_estimation) {
+            std::cout << "\n========================================" << std::endl;
+            std::cout << "State Estimation Enabled" << std::endl;
+            std::cout << "========================================" << std::endl;
+            std::cout << "GPS sample rate: " << 1.0/gps_sample_period << " Hz" << std::endl;
+            std::cout << "GPS noise (x,y,z): " << gps_position_noise.transpose() << " m" << std::endl;
+            std::cout << "Estimator rate: " << 1.0/estimator_dt << " Hz" << std::endl;
+            std::cout << "Use estimated in controller: " << (use_estimated_in_controller ? "YES" : "NO") << std::endl;
+            std::cout << "========================================\n" << std::endl;
+
+            // GPS sensor parameters
+            GpsParams gps_params;
+            gps_params.sample_period_sec = gps_sample_period;
+            gps_params.position_noise_stddev = gps_position_noise;
+            gps_params.dropout_probability = 0.0;  // No dropouts for now
+
+            // Create GPS sensors and estimators for each quadcopter
+            quad_gps_sensors.reserve(num_quadcopters);
+            quad_estimators.reserve(num_quadcopters);
+
+            for (int q = 0; q < num_quadcopters; ++q) {
+                gps_params.random_seed = 100 + q;  // Different seed per quad
+
+                // GPS sensor for quadcopter
+                auto& gps = *builder.AddSystem<GpsSensor>(
+                    plant, *quadcopter_bodies[q], gps_params);
+                quad_gps_sensors.push_back(&gps);
+
+                // State estimator for quadcopter
+                EstimatorParams est_params;
+                est_params.gps_measurement_noise = gps_position_noise;
+                auto& estimator = *builder.AddSystem<PositionVelocityEstimator>(
+                    estimator_dt, est_params);
+                quad_estimators.push_back(&estimator);
+
+                // Connect GPS to estimator
+                builder.Connect(plant.get_state_output_port(),
+                                gps.get_plant_state_input_port());
+                builder.Connect(gps.get_gps_position_output_port(),
+                                estimator.get_gps_position_input_port());
+                builder.Connect(gps.get_gps_valid_output_port(),
+                                estimator.get_gps_valid_input_port());
+            }
+
+            // GPS sensor for load
+            gps_params.random_seed = 999;
+            load_gps_sensor = &(*builder.AddSystem<GpsSensor>(
+                plant, payload_body, gps_params));
+
+            // Load state estimator
+            LoadEstimatorParams load_est_params;
+            load_est_params.gps_measurement_noise = gps_position_noise;
+            load_estimator = &(*builder.AddSystem<LoadStateEstimator>(
+                num_quadcopters, estimator_dt, load_est_params));
+
+            // Connect load GPS sensor
+            builder.Connect(plant.get_state_output_port(),
+                            load_gps_sensor->get_plant_state_input_port());
+            builder.Connect(load_gps_sensor->get_gps_position_output_port(),
+                            load_estimator->get_gps_position_input_port());
+            builder.Connect(load_gps_sensor->get_gps_valid_output_port(),
+                            load_estimator->get_gps_valid_input_port());
+
+            // Create helper systems for load estimator inputs
+
+            // 1. Quad attachment position extractor
+            std::vector<const RigidBody<double>*> quad_bodies_vec;
+            std::vector<Eigen::Vector3d> quad_offsets_vec;
+            for (int q = 0; q < num_quadcopters; ++q) {
+                quad_bodies_vec.push_back(quadcopter_bodies[q]);
+                quad_offsets_vec.push_back(quad_attachment_offset);
+            }
+            auto& quad_pos_extractor = *builder.AddSystem<AttachmentPositionExtractor>(
+                plant, quad_bodies_vec, quad_offsets_vec);
+            builder.Connect(plant.get_state_output_port(),
+                            quad_pos_extractor.get_plant_state_input_port());
+            builder.Connect(quad_pos_extractor.get_positions_output_port(),
+                            load_estimator->get_quad_positions_input_port());
+
+            // 2. Cable length source (uses sampled rope lengths)
+            std::vector<double> cable_lengths_vec;
+            for (int q = 0; q < num_quadcopters; ++q) {
+                cable_lengths_vec.push_back(quad_configs[q].rope_length);
+            }
+            auto& cable_length_source = *builder.AddSystem<CableLengthSource>(
+                cable_lengths_vec);
+            builder.Connect(cable_length_source.get_lengths_output_port(),
+                            load_estimator->get_cable_lengths_input_port());
+
+            // 3. Tension aggregator
+            auto& tension_aggregator = *builder.AddSystem<TensionAggregator>(
+                num_quadcopters);
+            for (int q = 0; q < num_quadcopters; ++q) {
+                builder.Connect(rope_systems[q]->get_tension_output_port(),
+                                tension_aggregator.get_tension_input_port(q));
+            }
+            builder.Connect(tension_aggregator.get_tensions_output_port(),
+                            load_estimator->get_tensions_input_port());
+        }
+
+        // -------------------------------------------------------------------------
         // Connect Systems
         // -------------------------------------------------------------------------
 
@@ -412,7 +602,7 @@ namespace quad_rope_lift
             2 * num_quadcopters);
 
         for (int q = 0; q < num_quadcopters; ++q) {
-            // Rope system connections
+            // Rope system connections (always use ground truth for physics)
             builder.Connect(plant.get_state_output_port(),
                             rope_systems[q]->get_plant_state_input_port());
             builder.Connect(rope_systems[q]->get_forces_output_port(),
@@ -425,6 +615,12 @@ namespace quad_rope_lift
                             controllers[q]->get_tension_input_port());
             builder.Connect(controllers[q]->get_control_output_port(),
                             force_combiner.get_input_port(2 * q));
+
+            // Connect estimated state to controller (if estimation enabled and configured)
+            if (enable_estimation && use_estimated_in_controller) {
+                builder.Connect(quad_estimators[q]->get_estimated_state_output_port(),
+                                controllers[q]->get_estimated_state_input_port());
+            }
         }
 
         // Apply combined forces to plant
@@ -435,6 +631,42 @@ namespace quad_rope_lift
         auto& tension_logger = *builder.AddSystem<VectorLogSink<double>>(4);
         builder.Connect(rope_systems[0]->get_tension_output_port(),
                         tension_logger.get_input_port());
+
+        // -------------------------------------------------------------------------
+        // Estimation Error Logging (if estimation enabled)
+        // -------------------------------------------------------------------------
+
+        std::vector<VectorLogSink<double>*> quad_error_loggers;
+        VectorLogSink<double>* load_error_logger = nullptr;
+
+        if (enable_estimation) {
+            // Log estimation errors for each quadcopter
+            for (int q = 0; q < num_quadcopters; ++q) {
+                auto& error_computer = *builder.AddSystem<EstimationErrorComputer>(
+                    plant, *quadcopter_bodies[q]);
+                builder.Connect(plant.get_state_output_port(),
+                                error_computer.get_plant_state_input_port());
+                builder.Connect(quad_estimators[q]->get_estimated_state_output_port(),
+                                error_computer.get_estimated_state_input_port());
+
+                auto& error_logger = *builder.AddSystem<VectorLogSink<double>>(8);
+                builder.Connect(error_computer.get_error_output_port(),
+                                error_logger.get_input_port());
+                quad_error_loggers.push_back(&error_logger);
+            }
+
+            // Log estimation error for load
+            auto& load_error_computer = *builder.AddSystem<EstimationErrorComputer>(
+                plant, payload_body);
+            builder.Connect(plant.get_state_output_port(),
+                            load_error_computer.get_plant_state_input_port());
+            builder.Connect(load_estimator->get_estimated_state_output_port(),
+                            load_error_computer.get_estimated_state_input_port());
+
+            load_error_logger = &(*builder.AddSystem<VectorLogSink<double>>(8));
+            builder.Connect(load_error_computer.get_error_output_port(),
+                            load_error_logger->get_input_port());
+        }
 
         // -------------------------------------------------------------------------
         // Set Up Visualization
@@ -477,6 +709,37 @@ namespace quad_rope_lift
         }
 
         // -------------------------------------------------------------------------
+        // Add Trajectory Visualizer (Reference Path + Actual Trails)
+        // -------------------------------------------------------------------------
+
+        // Collect drone body indices for visualization
+        std::vector<drake::multibody::BodyIndex> drone_body_indices;
+        for (int q = 0; q < num_quadcopters; ++q) {
+            drone_body_indices.push_back(quadcopter_bodies[q]->index());
+        }
+
+        // Configure trajectory visualization
+        tether_lift::TrajectoryVisualizer::Params traj_vis_params;
+        traj_vis_params.show_reference_trajectory = true;
+        traj_vis_params.reference_color = drake::geometry::Rgba(0.0, 1.0, 0.0, 0.8);  // Green
+        traj_vis_params.reference_line_width = 5.0;
+        traj_vis_params.show_trails = true;
+        traj_vis_params.trail_update_period = 0.05;
+        traj_vis_params.load_trail_color = drake::geometry::Rgba(1.0, 0.5, 0.0, 0.9);  // Orange
+        traj_vis_params.load_trail_width = 4.0;
+        traj_vis_params.load_max_trail_points = 2000;
+        traj_vis_params.drone_max_trail_points = 1000;
+
+        auto& trajectory_visualizer = *builder.AddSystem<tether_lift::TrajectoryVisualizer>(
+            plant,
+            meshcat,
+            payload_body.index(),
+            drone_body_indices,
+            traj_vis_params);
+        builder.Connect(plant.get_state_output_port(),
+                        trajectory_visualizer.get_plant_state_input());
+
+        // -------------------------------------------------------------------------
         // Add Tension Plotter for Real-Time Visualization
         // -------------------------------------------------------------------------
 
@@ -492,6 +755,51 @@ namespace quad_rope_lift
         for (int q = 0; q < num_quadcopters; ++q) {
             builder.Connect(rope_systems[q]->get_tension_output_port(),
                             tension_plotter.get_tension_input_port(q));
+        }
+
+        // -------------------------------------------------------------------------
+        // Add Data Logger for Comprehensive Signal Logging
+        // -------------------------------------------------------------------------
+
+        tether_lift::SimulationDataLogger::Params logger_params;
+        logger_params.base_output_dir = "/workspaces/Tether_Lift/outputs/logs";
+        logger_params.log_period = 0.01;  // 100 Hz logging
+        logger_params.num_quadcopters = num_quadcopters;
+
+        auto& data_logger = *builder.AddSystem<tether_lift::SimulationDataLogger>(
+            plant,
+            payload_body.index(),
+            drone_body_indices,
+            logger_params);
+
+        // Connect plant state
+        builder.Connect(plant.get_state_output_port(),
+                        data_logger.get_plant_state_input());
+
+        // Connect tension signals
+        for (int q = 0; q < num_quadcopters; ++q) {
+            builder.Connect(rope_systems[q]->get_tension_output_port(),
+                            data_logger.get_tension_input(q));
+        }
+
+        // Connect control efforts (from controllers)
+        for (int q = 0; q < num_quadcopters; ++q) {
+            builder.Connect(controllers[q]->get_control_vector_output_port(),
+                            data_logger.get_control_effort_input(q));
+        }
+
+        // Connect GPS and estimator outputs (if estimation enabled)
+        if (enable_estimation) {
+            for (int q = 0; q < num_quadcopters; ++q) {
+                builder.Connect(quad_gps_sensors[q]->get_gps_position_output_port(),
+                                data_logger.get_gps_input(q));
+                builder.Connect(quad_estimators[q]->get_estimated_state_output_port(),
+                                data_logger.get_estimated_state_input(q));
+            }
+            builder.Connect(load_gps_sensor->get_gps_position_output_port(),
+                            data_logger.get_load_gps_input());
+            builder.Connect(load_estimator->get_estimated_state_output_port(),
+                            data_logger.get_load_estimated_state_input());
         }
 
         // -------------------------------------------------------------------------
@@ -557,8 +865,148 @@ namespace quad_rope_lift
             }
         }
 
+        // Initialize state estimators (if enabled)
+        if (enable_estimation) {
+            // Initialize GPS sensors with initial positions
+            for (int q = 0; q < num_quadcopters; ++q) {
+                auto& gps_context = quad_gps_sensors[q]->GetMyMutableContextFromRoot(&context);
+                quad_gps_sensors[q]->InitializeGpsState(
+                    &gps_context,
+                    quad_configs[q].initial_position);
+            }
+
+            // Initialize load GPS sensor
+            auto& load_gps_context = load_gps_sensor->GetMyMutableContextFromRoot(&context);
+            load_gps_sensor->InitializeGpsState(
+                &load_gps_context,
+                Eigen::Vector3d(0.0, 0.0, payload_radius + ground_clearance));
+
+            // Initialize quad estimators with true initial positions
+            for (int q = 0; q < num_quadcopters; ++q) {
+                auto& est_context = quad_estimators[q]->GetMyMutableContextFromRoot(&context);
+                quad_estimators[q]->SetInitialState(
+                    &est_context,
+                    quad_configs[q].initial_position,
+                    Eigen::Vector3d::Zero());
+            }
+
+            // Initialize load estimator with true initial position
+            auto& load_est_context = load_estimator->GetMyMutableContextFromRoot(&context);
+            load_estimator->SetInitialState(
+                &load_est_context,
+                Eigen::Vector3d(0.0, 0.0, payload_radius + ground_clearance),
+                Eigen::Vector3d::Zero());
+        }
+
         // Publish initial state
         diagram->ForcedPublish(context);
+
+        // -------------------------------------------------------------------------
+        // Draw Reference Trajectory (before simulation starts)
+        // -------------------------------------------------------------------------
+
+        // Compute LOAD reference trajectory (not quadcopter trajectory)
+        // The waypoints are for quadcopters - the load hangs below by rope length
+        // We need to show where the load CENTER should ideally be
+        //
+        // Vertical distance from drone center to load center:
+        //   1. quad_attachment_offset.z() = -(quad_height/2 + 0.05) ≈ -0.10m (below drone)
+        //   2. rope_length (with stretch under load ~15%) ≈ rope * 1.15
+        //   3. payload_attachment.z() = payload_radius ≈ 0.15m (above load center)
+        //
+        // So load_center_z = drone_z + quad_attachment_offset.z() - rope_length*1.15 - payload_radius
+        //                  = drone_z - 0.10 - rope*1.15 - 0.15
+        //                  = drone_z - (0.25 + rope*1.15)
+
+        const double rope_stretch_factor = 1.0 + max_stretch_percentage;  // 1.15
+        const double total_vertical_offset =
+            std::abs(quad_attachment_offset.z()) +  // Distance from drone center to rope attachment
+            avg_rope_length * rope_stretch_factor + // Stretched rope length
+            payload_radius;                          // Distance from payload attachment to center
+
+        std::cout << "Reference trajectory offset calculation:" << std::endl;
+        std::cout << "  quad_attachment_offset.z = " << quad_attachment_offset.z() << " m" << std::endl;
+        std::cout << "  avg_rope_length = " << avg_rope_length << " m" << std::endl;
+        std::cout << "  rope_stretch_factor = " << rope_stretch_factor << std::endl;
+        std::cout << "  payload_radius = " << payload_radius << " m" << std::endl;
+        std::cout << "  total_vertical_offset = " << total_vertical_offset << " m" << std::endl;
+
+        std::vector<Eigen::Vector3d> load_reference_waypoints;
+        load_reference_waypoints.reserve(waypoints.size() + 1);
+
+        // Start from load's actual initial position on the ground
+        const double load_initial_z = payload_radius + ground_clearance;
+        load_reference_waypoints.push_back(Eigen::Vector3d(0, 0, load_initial_z));
+
+        // For subsequent waypoints, compute load position as quad position minus total offset
+        for (const auto& wp : waypoints) {
+            // Load center position accounting for all offsets
+            double load_z = wp.position.z() - total_vertical_offset;
+
+            // Load can't go below ground (load center is at payload_radius above ground)
+            load_z = std::max(load_z, load_initial_z);
+
+            // Only add if this creates meaningful movement from previous point
+            Eigen::Vector3d load_pos(wp.position.x(), wp.position.y(), load_z);
+            if (load_reference_waypoints.empty() ||
+                (load_pos - load_reference_waypoints.back()).norm() > 0.05) {
+                load_reference_waypoints.push_back(load_pos);
+            }
+        }
+
+        trajectory_visualizer.DrawReferenceTrajectory(load_reference_waypoints);
+
+        std::cout << "Load reference waypoints:" << std::endl;
+        for (size_t i = 0; i < load_reference_waypoints.size(); ++i) {
+            std::cout << "  [" << i << "]: (" << load_reference_waypoints[i].x()
+                      << ", " << load_reference_waypoints[i].y()
+                      << ", " << load_reference_waypoints[i].z() << ")" << std::endl;
+        }
+
+        // -------------------------------------------------------------------------
+        // Write Configuration File for Data Logger
+        // -------------------------------------------------------------------------
+
+        std::map<std::string, std::string> config_params;
+        config_params["simulation_time_step"] = std::to_string(simulation_time_step);
+        config_params["simulation_duration"] = std::to_string(simulation_duration);
+        config_params["num_quadcopters"] = std::to_string(num_quadcopters);
+        config_params["quadcopter_mass"] = std::to_string(quadcopter_mass);
+        config_params["payload_mass"] = std::to_string(payload_mass);
+        config_params["payload_radius"] = std::to_string(payload_radius);
+        config_params["initial_altitude"] = std::to_string(initial_altitude);
+        config_params["formation_radius"] = std::to_string(formation_radius);
+        config_params["avg_rope_length"] = std::to_string(avg_rope_length);
+        config_params["segment_stiffness"] = std::to_string(segment_stiffness);
+        config_params["segment_damping"] = std::to_string(segment_damping);
+        config_params["num_rope_beads"] = std::to_string(num_rope_beads);
+        config_params["enable_estimation"] = enable_estimation ? "true" : "false";
+        config_params["use_estimated_in_controller"] = use_estimated_in_controller ? "true" : "false";
+        config_params["gps_sample_period"] = std::to_string(gps_sample_period);
+        config_params["estimator_dt"] = std::to_string(estimator_dt);
+        config_params["random_seed"] = std::to_string(random_seed);
+
+        // Log rope lengths for each quadcopter
+        for (int q = 0; q < num_quadcopters; ++q) {
+            config_params["quad_" + std::to_string(q) + "_rope_length_mean"] =
+                std::to_string(quad_configs[q].rope_length_mean);
+            config_params["quad_" + std::to_string(q) + "_rope_length_sampled"] =
+                std::to_string(quad_configs[q].rope_length);
+        }
+
+        // Log waypoints
+        for (size_t i = 0; i < waypoints.size(); ++i) {
+            config_params["waypoint_" + std::to_string(i) + "_position"] =
+                "(" + std::to_string(waypoints[i].position.x()) + ", " +
+                std::to_string(waypoints[i].position.y()) + ", " +
+                std::to_string(waypoints[i].position.z()) + ")";
+            config_params["waypoint_" + std::to_string(i) + "_arrival_time"] =
+                std::to_string(waypoints[i].arrival_time);
+            config_params["waypoint_" + std::to_string(i) + "_hold_time"] =
+                std::to_string(waypoints[i].hold_time);
+        }
+
+        data_logger.WriteConfigFile(config_params);
 
         // -------------------------------------------------------------------------
         // Run Simulation
@@ -604,6 +1052,54 @@ namespace quad_rope_lift
         std::cout << "  Max rope tension (rope 0): " << max_tension << " N\n";
         std::cout << "  Expected tension per rope: " << load_per_rope << " N\n";
         std::cout << "  Total payload weight: " << payload_mass * gravity << " N\n";
+
+        // Print estimation error statistics (if enabled)
+        if (enable_estimation && !quad_error_loggers.empty()) {
+            std::cout << "\n========================================" << std::endl;
+            std::cout << "Estimation Error Statistics" << std::endl;
+            std::cout << "========================================" << std::endl;
+
+            for (int q = 0; q < num_quadcopters; ++q) {
+                const auto& error_log = quad_error_loggers[q]->FindLog(context);
+                const auto& error_data = error_log.data();
+
+                // Compute RMS position error (column 6 is position norm error)
+                double pos_err_sum = 0.0;
+                double max_pos_err = 0.0;
+                for (int i = 0; i < error_data.cols(); ++i) {
+                    const double pos_err = error_data(6, i);
+                    pos_err_sum += pos_err * pos_err;
+                    max_pos_err = std::max(max_pos_err, pos_err);
+                }
+                const double rms_pos_err = std::sqrt(pos_err_sum / error_data.cols());
+
+                std::cout << "Quad " << q << ": RMS pos error = " << rms_pos_err * 100
+                          << " cm, Max = " << max_pos_err * 100 << " cm" << std::endl;
+            }
+
+            // Load estimation error
+            if (load_error_logger != nullptr) {
+                const auto& load_error_log = load_error_logger->FindLog(context);
+                const auto& load_error_data = load_error_log.data();
+
+                double pos_err_sum = 0.0;
+                double max_pos_err = 0.0;
+                for (int i = 0; i < load_error_data.cols(); ++i) {
+                    const double pos_err = load_error_data(6, i);
+                    pos_err_sum += pos_err * pos_err;
+                    max_pos_err = std::max(max_pos_err, pos_err);
+                }
+                const double rms_pos_err = std::sqrt(pos_err_sum / load_error_data.cols());
+
+                std::cout << "Load:   RMS pos error = " << rms_pos_err * 100
+                          << " cm, Max = " << max_pos_err * 100 << " cm" << std::endl;
+            }
+            std::cout << "========================================\n" << std::endl;
+        }
+
+        // Finalize data logging
+        data_logger.Finalize();
+        std::cout << "Data logged to: " << data_logger.output_dir() << std::endl;
 
         return 0;
     }

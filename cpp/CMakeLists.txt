@@ -28,10 +28,37 @@ add_executable(quad_rope_lift
     src/rope_visualizer.cc
     src/rope_utils.cc
     src/tension_plotter.cc
+    src/gps_sensor.cc
+    src/position_velocity_estimator.cc
+    src/load_estimator.cc
+    src/estimation_utils.cc
+    src/estimation_error_computer.cc
+    src/imu_sensor.cc
+    src/barometer_sensor.cc
+    src/eskf_estimator.cc
+    src/adaptive_load_estimator.cc
+    src/decentralized_load_estimator.cc
+    src/adaptive_lift_controller.cc
+    src/load_trajectory_generator.cc
+    src/cbf_safety_filter.cc
+    src/wind_disturbance.cc
+    # Load trajectory following components (Equations 5, 11, 17, 21)
+    src/required_force_computer.cc
+    src/force_allocation_system.cc
+    src/drone_trajectory_mapper.cc
+    src/extended_load_trajectory_generator.cc
+    src/load_tracking_controller.cc
+    # Fully decentralized controller (no N, no m_L)
+    src/decentralized_drone_controller.cc
+    # Visualization
+    src/trajectory_visualizer.cc
+    # Data logging
+    src/simulation_data_logger.cc
 )
 
 target_include_directories(quad_rope_lift PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 target_link_libraries(quad_rope_lift PRIVATE
