@@ -52,12 +52,69 @@ DroneTrajectoryMapper::DroneTrajectoryMapper(const Params& params)
   drone_trajectories_port_ = DeclareVectorOutputPort(
       "drone_trajectories", 9 * N,
       &DroneTrajectoryMapper::CalcDroneTrajectories).get_index();
+
+  // Discrete state for tracking cable direction history (for computing q̇)
+  // State: [q_0_prev(3), q_1_prev(3), ..., q_{N-1}_prev(3)] = 3N elements
+  prev_directions_state_index_ = DeclareDiscreteState(3 * N);
+
+  // State for previous time (1 element)
+  prev_time_state_index_ = DeclareDiscreteState(1);
+
+  // Periodic discrete update to track direction history
+  DeclarePeriodicDiscreteUpdateEvent(
+      kUpdatePeriod, 0.0,  // period, offset
+      &DroneTrajectoryMapper::DiscreteUpdate);
 }
 
 Eigen::Vector3d DroneTrajectoryMapper::RotateToWorld(
     const Eigen::Vector3d& v_load,
     const Eigen::Quaterniond& q_load) const {
   return q_load * v_load;
+}
+
+Eigen::Vector3d DroneTrajectoryMapper::ComputeDirectionDerivative(
+    const Eigen::Vector3d& q_current,
+    const Eigen::Vector3d& q_prev,
+    double dt) const {
+  if (dt < 1e-9) {
+    return Eigen::Vector3d::Zero();
+  }
+
+  // Raw finite difference
+  Eigen::Vector3d q_dot_raw = (q_current - q_prev) / dt;
+
+  // Project onto tangent plane of unit sphere: q̇ must be perpendicular to q
+  // q̇_tangent = (I - q·qᵀ) · q̇_raw
+  Eigen::Matrix3d projector = Eigen::Matrix3d::Identity() - q_current * q_current.transpose();
+  Eigen::Vector3d q_dot = projector * q_dot_raw;
+
+  // Limit maximum rate to prevent instability from noise
+  const double max_rate = 5.0;  // rad/s - reasonable for cable swing
+  double rate = q_dot.norm();
+  if (rate > max_rate) {
+    q_dot *= max_rate / rate;
+  }
+
+  return q_dot;
+}
+
+drake::systems::EventStatus DroneTrajectoryMapper::DiscreteUpdate(
+    const drake::systems::Context<double>& context,
+    drake::systems::DiscreteValues<double>* discrete_state) const {
+  const int N = params_.num_drones;
+
+  // Get current cable directions
+  const Eigen::VectorXd& directions = get_desired_directions_input().Eval(context);
+
+  // Update stored directions
+  discrete_state->get_mutable_vector(prev_directions_state_index_).SetFromVector(directions);
+
+  // Update stored time
+  Eigen::VectorXd time_vec(1);
+  time_vec[0] = context.get_time();
+  discrete_state->get_mutable_vector(prev_time_state_index_).SetFromVector(time_vec);
+
+  return drake::systems::EventStatus::Succeeded();
 }
 
 void DroneTrajectoryMapper::CalcDroneTrajectories(
@@ -80,6 +137,13 @@ void DroneTrajectoryMapper::CalcDroneTrajectories(
   Eigen::Quaterniond q_load(quat_vec[0], quat_vec[1], quat_vec[2], quat_vec[3]);
   q_load.normalize();
 
+  // Get previous directions and time from discrete state
+  const Eigen::VectorXd& prev_directions =
+      context.get_discrete_state(prev_directions_state_index_).value();
+  double prev_time = context.get_discrete_state(prev_time_state_index_).value()[0];
+  double current_time = context.get_time();
+  double dt = (prev_time >= 0.0) ? (current_time - prev_time) : 0.0;
+
   // Compute trajectory for each drone
   Eigen::VectorXd out(9 * N);
 
@@ -98,15 +162,37 @@ void DroneTrajectoryMapper::CalcDroneTrajectories(
     // Cable direction q_i points from load toward drone
     Eigen::Vector3d p_i_des = p_L_des + a_i_W + ell_i * q_i;
 
-    // For quasi-static assumption (q̇ ≈ 0, q̈ ≈ 0):
-    // Equation (18): v_i^d = v_L^d + ℓ_i · q̇_i^d ≈ v_L^d
-    // Equation (19): a_i^d = a_L^d + ℓ_i · q̈_i^d ≈ a_L^d
-    Eigen::Vector3d v_i_des = v_L_des;
-    Eigen::Vector3d a_i_des = a_L_des;
+    Eigen::Vector3d v_i_des;
+    Eigen::Vector3d a_i_des;
 
-    // TODO: For full dynamics mode, compute q̇_i^d and q̈_i^d from:
-    // q̇ = (I - q·qᵀ) · ω_cable / ||ρ||
-    // where ω_cable depends on how the required force direction changes
+    if (params_.enable_full_dynamics && prev_time >= 0.0 && dt > 1e-9) {
+      // FULL DYNAMICS MODE: Compute q̇_i^d from finite differences
+      // Equation (34): q̇_i^d = (I - q_i·q_i^T) · μ̇_i^d / ||μ_i^d||
+      // We approximate this using finite differences on q_i^d
+
+      Eigen::Vector3d q_i_prev = prev_directions.segment<3>(3 * i).normalized();
+      Eigen::Vector3d q_dot_i = ComputeDirectionDerivative(q_i, q_i_prev, dt);
+
+      // Equation (18): v_i^d = v_L^d + ℓ_i · q̇_i^d
+      v_i_des = v_L_des + ell_i * q_dot_i;
+
+      // For acceleration, we'd need q̈_i^d, but we approximate with quasi-static
+      // since computing second derivative from finite differences is noisy
+      // Equation (19): a_i^d = a_L^d + ℓ_i · q̈_i^d ≈ a_L^d
+      a_i_des = a_L_des;
+
+      // Apply smoothing/filtering to reduce noise
+      // Low-pass filter: v_i_des = α·v_i_des_new + (1-α)·v_L_des
+      double alpha = std::min(1.0, dt / params_.direction_filter_tau);
+      v_i_des = alpha * v_i_des + (1.0 - alpha) * v_L_des;
+
+    } else {
+      // QUASI-STATIC MODE: Assume q̇ ≈ 0, q̈ ≈ 0
+      // Equation (18): v_i^d = v_L^d + ℓ_i · q̇_i^d ≈ v_L^d
+      // Equation (19): a_i^d = a_L^d + ℓ_i · q̈_i^d ≈ a_L^d
+      v_i_des = v_L_des;
+      a_i_des = a_L_des;
+    }
 
     // Pack into output: [p, v, a]
     out.segment<3>(9 * i + 0) = p_i_des;

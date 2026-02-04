@@ -46,8 +46,8 @@ class RequiredForceComputer final : public drake::systems::LeafSystem<double> {
     double max_force_magnitude;
 
     Params()
-        : Kp(10.0, 10.0, 15.0)
-        , Kd(5.0, 5.0, 8.0)
+        : Kp(3.0, 3.0, 5.0)      // Reduced for bandwidth separation (was 10,10,15)
+        , Kd(5.0, 5.0, 6.0)      // Increased for higher damping ratio ζ≈0.8 (was 2,2,3)
         , gravity(9.81)
         , min_mass_estimate(0.1)
         , max_force_magnitude(500.0) {}

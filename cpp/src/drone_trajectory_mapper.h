@@ -108,10 +108,22 @@ class DroneTrajectoryMapper final : public drake::systems::LeafSystem<double> {
       const drake::systems::Context<double>& context,
       drake::systems::BasicVector<double>* output) const;
 
+  // Discrete update for tracking cable direction history
+  drake::systems::EventStatus DiscreteUpdate(
+      const drake::systems::Context<double>& context,
+      drake::systems::DiscreteValues<double>* discrete_state) const;
+
   // Rotate vector from load frame to world frame using quaternion
   Eigen::Vector3d RotateToWorld(
       const Eigen::Vector3d& v_load,
       const Eigen::Quaterniond& q_load) const;
+
+  // Compute cable direction derivative using finite differences
+  // Returns q̇_i from (q_i - q_i_prev) / dt
+  Eigen::Vector3d ComputeDirectionDerivative(
+      const Eigen::Vector3d& q_current,
+      const Eigen::Vector3d& q_prev,
+      double dt) const;
 
   Params params_;
 
@@ -120,6 +132,13 @@ class DroneTrajectoryMapper final : public drake::systems::LeafSystem<double> {
   int desired_directions_port_{};
   int load_orientation_port_{};
   int drone_trajectories_port_{};
+
+  // Discrete state indices for cable direction history
+  drake::systems::DiscreteStateIndex prev_directions_state_index_{};
+  drake::systems::DiscreteStateIndex prev_time_state_index_{};
+
+  // Update period for discrete state
+  static constexpr double kUpdatePeriod = 0.001;  // 1 kHz
 };
 
 /**

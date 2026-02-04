@@ -58,12 +58,12 @@ class LoadTrackingController final : public drake::systems::LeafSystem<double> {
 
     Params()
         : mass(1.0)
-        , Kp(15.0, 15.0, 20.0)
-        , Kd(8.0, 8.0, 10.0)
+        , Kp(25.0, 25.0, 35.0)   // Increased for faster inner loop (was 15,15,20)
+        , Kd(12.0, 12.0, 15.0)   // Increased for better damping (was 8,8,10)
         , gravity(9.81)
         , use_actual_tension_feedforward(true)
         , cable_compensation_gain(1.0)
-        , max_thrust(30.0)
+        , max_thrust(50.0)       // Increased for higher gains (was 30)
         , min_thrust(0.1)
         , Ki(0.0, 0.0, 0.0)
         , max_integral(5.0) {}

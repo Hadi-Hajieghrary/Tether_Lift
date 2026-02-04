@@ -31,13 +31,13 @@ struct ControllerParams {
   std::vector<TrajectoryWaypoint> waypoints;
 
   // Position control gains (x/y)
-  double position_kp = 10.0;           ///< Proportional gain for x/y position control
-  double position_kd = 6.0;            ///< Derivative gain for x/y position control
+  double position_kp = 8.0;            ///< Proportional gain for x/y position control (reduced for less overshoot)
+  double position_kd = 10.0;           ///< Derivative gain for x/y position control (increased for damping)
   double max_tilt_angle = 0.3;         ///< Maximum tilt angle for x/y control [rad] (~17 deg)
 
   // Altitude control gains (z)
-  double altitude_kp = 15.0;           ///< Proportional gain for altitude control
-  double altitude_kd = 8.0;            ///< Derivative gain for altitude control
+  double altitude_kp = 12.0;           ///< Proportional gain for altitude control (reduced)
+  double altitude_kd = 12.0;           ///< Derivative gain for altitude control (increased)
 
   // Attitude control gains
   double attitude_kp = 8.0;            ///< Proportional gain for attitude control
