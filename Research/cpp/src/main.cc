@@ -1229,7 +1229,7 @@ namespace quad_rope_lift
             meshcat->PublishRecording();  // Makes it playable in browser
 
             // Export to static HTML file
-            const std::string html_path = "/workspaces/Tether_Lift/Research/outputs/sim_recording.html";
+            const std::string html_path = "/workspaces/Tether_Lift/Research/outputs/sim_recording.gif";
             std::ofstream html_file(html_path);
             html_file << meshcat->StaticHtml();
             html_file.close();
