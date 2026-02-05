@@ -31,27 +31,32 @@ struct ControllerParams {
   std::vector<TrajectoryWaypoint> waypoints;
 
   // Position control gains (x/y)
-  double position_kp = 8.0;            ///< Proportional gain for x/y position control (reduced for less overshoot)
-  double position_kd = 10.0;           ///< Derivative gain for x/y position control (increased for damping)
-  double max_tilt_angle = 0.3;         ///< Maximum tilt angle for x/y control [rad] (~17 deg)
+  // TUNED: Aggressive gains for faster horizontal tracking
+  double position_kp = 15.0;           ///< Proportional gain for x/y position control
+  double position_kd = 7.0;            ///< Derivative gain for x/y position control
+  double max_tilt_angle = 0.4;         ///< Maximum tilt angle for x/y control [rad] (~23 deg)
 
   // Altitude control gains (z)
-  double altitude_kp = 12.0;           ///< Proportional gain for altitude control (reduced)
-  double altitude_kd = 12.0;           ///< Derivative gain for altitude control (increased)
+  // TUNED: High gains for rapid vertical response
+  double altitude_kp = 25.0;           ///< Proportional gain for altitude control
+  double altitude_kd = 12.0;           ///< Derivative gain for altitude control
 
   // Attitude control gains
-  double attitude_kp = 8.0;            ///< Proportional gain for attitude control
-  double attitude_kd = 1.5;            ///< Derivative gain for attitude control
+  // TUNED: High gains for snappy attitude response
+  double attitude_kp = 15.0;           ///< Proportional gain for attitude control
+  double attitude_kd = 2.5;            ///< Derivative gain for attitude control
 
   // Tension feedback gains
-  double tension_feedback_kp = 0.5;    ///< Gain for tension error feedback to thrust
-  double tension_altitude_gain = 0.003;///< Gain for tension error to altitude adjustment
-  double tension_altitude_max = 0.5;   ///< Max altitude adjustment from tension [m]
+  // TUNED: Aggressive for quick load engagement
+  double tension_feedback_kp = 1.5;    ///< Gain for tension error feedback to thrust
+  double tension_altitude_gain = 0.008;///< Gain for tension error to altitude adjustment
+  double tension_altitude_max = 1.0;   ///< Max altitude adjustment from tension [m]
 
   // Pickup phase parameters
-  double pickup_ramp_duration = 2.0;   ///< Time to ramp up tension target during pickup [s]
+  // TUNED: Fast pickup ramp
+  double pickup_ramp_duration = 1.0;   ///< Time to ramp up tension target during pickup [s]
   double pickup_target_tension = 20.0; ///< Final target rope tension (≈ payload weight/N_quads) [N]
-  double pickup_detection_threshold = 1.0; ///< Tension level that triggers pickup mode [N]
+  double pickup_detection_threshold = 0.3; ///< Tension level that triggers pickup mode [N]
 
   // Actuator limits
   double min_thrust = 0.0;             ///< Minimum allowed thrust [N]

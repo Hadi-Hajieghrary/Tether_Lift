@@ -44,6 +44,8 @@
 #include <drake/systems/framework/diagram_builder.h>
 #include <drake/systems/primitives/zero_order_hold.h>
 #include <drake/systems/primitives/vector_log_sink.h>
+#include <drake/systems/primitives/multiplexer.h>
+#include <drake/systems/primitives/demultiplexer.h>
 
 #include "quadcopter_controller.h"
 #include "rope_force_system.h"
@@ -51,6 +53,9 @@
 #include "rope_visualizer.h"
 #include "tension_plotter.h"
 #include "gps_sensor.h"
+#include "imu_sensor.h"
+#include "barometer_sensor.h"
+#include "wind_disturbance.h"
 #include "position_velocity_estimator.h"
 #include "load_estimator.h"
 #include "estimation_utils.h"
@@ -84,6 +89,8 @@ namespace quad_rope_lift
     using drake::systems::Simulator;
     using drake::systems::VectorLogSink;
     using drake::systems::ZeroOrderHold;
+    using drake::systems::Multiplexer;
+    using drake::systems::Demultiplexer;
 
     /// Configuration for a single quadcopter in the formation.
     struct QuadConfig {
@@ -104,8 +111,8 @@ namespace quad_rope_lift
         // Physics time step (smaller = more accurate but slower)
         const double simulation_time_step = 2e-4; // [s]
 
-        // Total simulation duration
-        const double simulation_duration = 15.0; // [s]
+        // Total simulation duration (extended for figure-8 trajectory)
+        const double simulation_duration = 50.0; // [s]
 
         // =========================================================================
         // State Estimation Configuration
@@ -157,7 +164,7 @@ namespace quad_rope_lift
         std::vector<QuadConfig> quad_configs(num_quadcopters);
 
         // Formation geometry: arrange quadcopters in a circle around payload
-        const double formation_radius = 0.5;  // [m] - horizontal distance from payload center
+        const double formation_radius = 0.6;  // [m] - horizontal distance from payload center
         const double attachment_radius = payload_radius * 0.7;  // Attachment points on payload top
 
         // =========================================================================
@@ -223,20 +230,41 @@ namespace quad_rope_lift
         // =========================================================================
         // Trajectory Waypoints (shared by all quadcopters, plus formation offset)
         // =========================================================================
+        // More challenging trajectory: Figure-8 with altitude variation
+        // Total duration: ~40 seconds for full maneuver
 
         std::vector<TrajectoryWaypoint> waypoints;
 
-        // Phase 1: Hover at initial position
-        waypoints.push_back({Eigen::Vector3d(0, 0, initial_altitude), 0.0, 1.0});
+        // Phase 1: Hover at initial position (stabilize before pickup)
+        waypoints.push_back({Eigen::Vector3d(0, 0, initial_altitude), 0.0, 2.0});
 
         // Phase 2: Ascend to lift payload
-        waypoints.push_back({Eigen::Vector3d(0, 0, 3.0), 4.0, 2.0});
+        waypoints.push_back({Eigen::Vector3d(0, 0, 3.0), 4.0, 1.5});
 
-        // Phase 3: Translate horizontally
-        waypoints.push_back({Eigen::Vector3d(2.0, 1.0, 3.0), 8.0, 2.0});
+        // Phase 3: Begin figure-8 pattern - move to right loop entry
+        waypoints.push_back({Eigen::Vector3d(1.5, 0.5, 3.2), 7.0, 0.5});
 
-        // Phase 4: Move to final position
-        waypoints.push_back({Eigen::Vector3d(2.0, 1.0, 2.0), 12.0, 3.0});
+        // Phase 4: Right loop of figure-8 (clockwise)
+        waypoints.push_back({Eigen::Vector3d(2.5, 1.5, 3.5), 10.0, 0.5});  // Top-right
+        waypoints.push_back({Eigen::Vector3d(3.0, 0.0, 3.3), 13.0, 0.5});  // Far-right
+        waypoints.push_back({Eigen::Vector3d(2.5, -1.5, 3.0), 16.0, 0.5}); // Bottom-right
+        waypoints.push_back({Eigen::Vector3d(1.5, -0.5, 2.8), 19.0, 0.5}); // Return to center
+
+        // Phase 5: Cross through center (figure-8 transition)
+        waypoints.push_back({Eigen::Vector3d(0.0, 0.0, 3.0), 21.0, 0.5});
+
+        // Phase 6: Left loop of figure-8 (counter-clockwise)
+        waypoints.push_back({Eigen::Vector3d(-1.5, 0.5, 3.2), 24.0, 0.5});  // Entry left
+        waypoints.push_back({Eigen::Vector3d(-2.5, 1.5, 3.5), 27.0, 0.5});  // Top-left
+        waypoints.push_back({Eigen::Vector3d(-3.0, 0.0, 3.3), 30.0, 0.5});  // Far-left
+        waypoints.push_back({Eigen::Vector3d(-2.5, -1.5, 3.0), 33.0, 0.5}); // Bottom-left
+        waypoints.push_back({Eigen::Vector3d(-1.5, -0.5, 2.8), 36.0, 0.5}); // Return to center
+
+        // Phase 7: Return to origin and descend
+        waypoints.push_back({Eigen::Vector3d(0.0, 0.0, 3.0), 39.0, 1.0});
+
+        // Phase 8: Controlled descent to final position
+        waypoints.push_back({Eigen::Vector3d(0.0, 0.0, 2.0), 43.0, 2.0});
 
         // =========================================================================
         // Derived Rope Parameters
@@ -594,6 +622,108 @@ namespace quad_rope_lift
         }
 
         // -------------------------------------------------------------------------
+        // Create IMU Sensors (for all quadcopters)
+        // -------------------------------------------------------------------------
+
+        std::vector<ImuSensor*> quad_imu_sensors;
+        quad_imu_sensors.reserve(num_quadcopters);
+
+        ImuParams imu_params;
+        imu_params.sample_period_sec = 0.005;  // 200 Hz
+        imu_params.gyro_noise_density = Eigen::Vector3d(5e-4, 5e-4, 5e-4);
+        imu_params.accel_noise_density = Eigen::Vector3d(4e-3, 4e-3, 4e-3);
+
+        for (int q = 0; q < num_quadcopters; ++q) {
+            imu_params.random_seed = 200 + q;  // Different seed per quad
+            auto& imu = *builder.AddSystem<ImuSensor>(
+                plant, *quadcopter_bodies[q], imu_params);
+            quad_imu_sensors.push_back(&imu);
+
+            // Connect IMU to plant state
+            builder.Connect(plant.get_state_output_port(),
+                            imu.get_plant_state_input_port());
+        }
+
+        std::cout << "\n========================================" << std::endl;
+        std::cout << "IMU Sensors Enabled" << std::endl;
+        std::cout << "========================================" << std::endl;
+        std::cout << "IMU sample rate: " << 1.0/imu_params.sample_period_sec << " Hz" << std::endl;
+        std::cout << "Gyro noise density: " << imu_params.gyro_noise_density.transpose() << " rad/s/sqrt(Hz)" << std::endl;
+        std::cout << "Accel noise density: " << imu_params.accel_noise_density.transpose() << " m/s^2/sqrt(Hz)" << std::endl;
+        std::cout << "========================================\n" << std::endl;
+
+        // -------------------------------------------------------------------------
+        // Create Barometer Sensors (for all quadcopters)
+        // -------------------------------------------------------------------------
+
+        std::vector<BarometerSensor*> quad_barometers;
+        quad_barometers.reserve(num_quadcopters);
+
+        BarometerParams baro_params;
+        baro_params.sample_period_sec = 0.04;  // 25 Hz
+        baro_params.white_noise_stddev = 0.3;
+        baro_params.correlated_noise_stddev = 0.2;
+
+        for (int q = 0; q < num_quadcopters; ++q) {
+            baro_params.random_seed = 300 + q;  // Different seed per quad
+            auto& baro = *builder.AddSystem<BarometerSensor>(
+                plant, *quadcopter_bodies[q], baro_params);
+            quad_barometers.push_back(&baro);
+
+            // Connect barometer to plant state
+            builder.Connect(plant.get_state_output_port(),
+                            baro.get_plant_state_input_port());
+        }
+
+        std::cout << "\n========================================" << std::endl;
+        std::cout << "Barometer Sensors Enabled" << std::endl;
+        std::cout << "========================================" << std::endl;
+        std::cout << "Barometer sample rate: " << 1.0/baro_params.sample_period_sec << " Hz" << std::endl;
+        std::cout << "White noise stddev: " << baro_params.white_noise_stddev << " m" << std::endl;
+        std::cout << "Correlated noise stddev: " << baro_params.correlated_noise_stddev << " m" << std::endl;
+        std::cout << "========================================\n" << std::endl;
+
+        // -------------------------------------------------------------------------
+        // Create Wind Disturbance System
+        // -------------------------------------------------------------------------
+
+        DrydenTurbulenceParams wind_params;
+        wind_params.mean_wind = Eigen::Vector3d(1.0, 0.5, 0.0);  // Light wind
+        wind_params.sigma_u = 0.5;  // Reduced turbulence for controlled sim
+        wind_params.sigma_v = 0.5;
+        wind_params.sigma_w = 0.25;
+        wind_params.altitude_dependent = true;
+
+        GustParams gust_params;
+        gust_params.enabled = false;  // Disable gusts for now
+
+        auto& wind_system = *builder.AddSystem<WindDisturbance>(
+            num_quadcopters, wind_params, gust_params, 0.01);
+
+        // Create a position extractor for wind system input (drone body centers)
+        std::vector<const RigidBody<double>*> wind_quad_bodies;
+        std::vector<Eigen::Vector3d> wind_zero_offsets;
+        for (int q = 0; q < num_quadcopters; ++q) {
+            wind_quad_bodies.push_back(quadcopter_bodies[q]);
+            wind_zero_offsets.push_back(Eigen::Vector3d::Zero());
+        }
+        auto& drone_pos_extractor = *builder.AddSystem<AttachmentPositionExtractor>(
+            plant, wind_quad_bodies, wind_zero_offsets);
+        builder.Connect(plant.get_state_output_port(),
+                        drone_pos_extractor.get_plant_state_input_port());
+        builder.Connect(drone_pos_extractor.get_positions_output_port(),
+                        wind_system.get_drone_positions_input_port());
+
+        std::cout << "\n========================================" << std::endl;
+        std::cout << "Wind Disturbance Enabled" << std::endl;
+        std::cout << "========================================" << std::endl;
+        std::cout << "Mean wind: " << wind_params.mean_wind.transpose() << " m/s" << std::endl;
+        std::cout << "Turbulence (u,v,w): " << wind_params.sigma_u << ", "
+                  << wind_params.sigma_v << ", " << wind_params.sigma_w << " m/s" << std::endl;
+        std::cout << "Gusts enabled: " << (gust_params.enabled ? "YES" : "NO") << std::endl;
+        std::cout << "========================================\n" << std::endl;
+
+        // -------------------------------------------------------------------------
         // Connect Systems
         // -------------------------------------------------------------------------
 
@@ -766,6 +896,22 @@ namespace quad_rope_lift
         logger_params.log_period = 0.01;  // 100 Hz logging
         logger_params.num_quadcopters = num_quadcopters;
 
+        // Basic logging (always enabled)
+        logger_params.log_plant_state = true;
+        logger_params.log_tensions = true;
+        logger_params.log_control_efforts = true;
+        logger_params.log_gps_measurements = enable_estimation;
+        logger_params.log_estimator_outputs = enable_estimation;
+        logger_params.log_reference_trajectory = false;  // No separate trajectory system yet
+
+        // Extended logging flags - ALL ENABLED
+        logger_params.log_imu_measurements = true;        // IMU sensors enabled
+        logger_params.log_barometer_measurements = true;  // Barometer sensors enabled
+        logger_params.log_rope_states = false;            // Need rope state output ports (future)
+        logger_params.log_attitude_data = true;           // Extract from plant state
+        logger_params.log_gpac_signals = false;           // GPAC controllers not used yet
+        logger_params.log_wind_disturbance = true;        // Wind system enabled
+
         auto& data_logger = *builder.AddSystem<tether_lift::SimulationDataLogger>(
             plant,
             payload_body.index(),
@@ -801,6 +947,33 @@ namespace quad_rope_lift
             builder.Connect(load_estimator->get_estimated_state_output_port(),
                             data_logger.get_load_estimated_state_input());
         }
+
+        // Connect IMU measurements (combined accel + gyro into 6D vector)
+        for (int q = 0; q < num_quadcopters; ++q) {
+            // Create multiplexer to combine accel (3D) and gyro (3D) into 6D IMU vector
+            auto& imu_mux = *builder.AddSystem<Multiplexer<double>>(std::vector<int>{3, 3});
+            builder.Connect(quad_imu_sensors[q]->get_accel_output_port(),
+                            imu_mux.get_input_port(0));
+            builder.Connect(quad_imu_sensors[q]->get_gyro_output_port(),
+                            imu_mux.get_input_port(1));
+            builder.Connect(imu_mux.get_output_port(0),
+                            data_logger.get_imu_input(q));
+        }
+
+        // Connect barometer measurements
+        for (int q = 0; q < num_quadcopters; ++q) {
+            builder.Connect(quad_barometers[q]->get_altitude_output_port(),
+                            data_logger.get_barometer_input(q));
+        }
+
+        // Connect wind disturbance (use first drone's wind as representative)
+        // Wind system outputs [3*N] vector, we need first 3 elements
+        auto& wind_demux = *builder.AddSystem<Demultiplexer<double>>(
+            3 * num_quadcopters, 3);
+        builder.Connect(wind_system.get_wind_velocities_output_port(),
+                        wind_demux.get_input_port(0));
+        builder.Connect(wind_demux.get_output_port(0),  // First drone's wind
+                        data_logger.get_wind_input());
 
         // -------------------------------------------------------------------------
         // Build and Initialize Simulation

@@ -21,8 +21,9 @@ constexpr int kGyroMeasOffset = 0;
 constexpr int kAccelMeasOffset = 3;
 constexpr int kGyroBiasOffset = 6;
 constexpr int kAccelBiasOffset = 9;
-constexpr int kValidOffset = 12;
-constexpr int kTotalStateSize = 13;
+constexpr int kPrevVelOffset = 12;   // Previous velocity for numerical diff
+constexpr int kValidOffset = 15;
+constexpr int kTotalStateSize = 16;
 
 ImuSensor::ImuSensor(const MultibodyPlant<double>& plant,
                      const RigidBody<double>& body,
@@ -38,13 +39,15 @@ ImuSensor::ImuSensor(const MultibodyPlant<double>& plant,
           BasicVector<double>(plant.num_positions() + plant.num_velocities()))
           .get_index();
 
-  // Discrete state: measurements + biases + valid flag
+  // Discrete state: measurements + biases + prev_vel + valid flag
   Eigen::VectorXd initial_state(kTotalStateSize);
   initial_state.setZero();
 
   // Initialize biases with specified initial values
   initial_state.segment<3>(kGyroBiasOffset) = params_.gyro_initial_bias;
   initial_state.segment<3>(kAccelBiasOffset) = params_.accel_initial_bias;
+  // Previous velocity initialized to zero
+  initial_state.segment<3>(kPrevVelOffset).setZero();
   initial_state[kValidOffset] = 1.0;  // Initially valid
 
   measurement_state_index_ = DeclareDiscreteState(initial_state);
@@ -85,17 +88,16 @@ EventStatus ImuSensor::UpdateImuMeasurement(
   const auto& pose_world = plant_.EvalBodyPoseInWorld(*plant_context, body);
   const auto& spatial_velocity =
       plant_.EvalBodySpatialVelocityInWorld(*plant_context, body);
-  const auto& spatial_acceleration =
-      plant_.EvalBodySpatialAccelerationInWorld(*plant_context, body);
 
   // Get rotation matrix (world to body)
   const RotationMatrixd& R_WB = pose_world.rotation();
   const Eigen::Matrix3d R_BW = R_WB.inverse().matrix();
 
-  // Get current biases from state
+  // Get current biases and previous velocity from state
   auto& state = discrete_state->get_mutable_vector(measurement_state_index_);
   Eigen::Vector3d gyro_bias = state.get_value().segment<3>(kGyroBiasOffset);
   Eigen::Vector3d accel_bias = state.get_value().segment<3>(kAccelBiasOffset);
+  Eigen::Vector3d prev_vel = state.get_value().segment<3>(kPrevVelOffset);
 
   // === Gyroscope measurement ===
   // True angular velocity in body frame
@@ -115,8 +117,16 @@ EventStatus ImuSensor::UpdateImuMeasurement(
   const Eigen::Vector3d gyro_meas = omega_body + gyro_bias + gyro_noise;
 
   // === Accelerometer measurement ===
-  // True linear acceleration in world frame
-  const Eigen::Vector3d accel_world = spatial_acceleration.translational();
+  // Compute acceleration via numerical differentiation of velocity
+  const Eigen::Vector3d current_vel = spatial_velocity.translational();
+  Eigen::Vector3d accel_world;
+  if (prev_vel.norm() > 1e-10) {
+    // Use backward difference for acceleration
+    accel_world = (current_vel - prev_vel) / dt;
+  } else {
+    // First sample: assume zero acceleration
+    accel_world = Eigen::Vector3d::Zero();
+  }
 
   // Specific force = acceleration - gravity (what accelerometer measures)
   const Eigen::Vector3d specific_force_world = accel_world - gravity_world_;
@@ -173,6 +183,11 @@ EventStatus ImuSensor::UpdateImuMeasurement(
   state[kAccelBiasOffset + 0] = accel_bias.x();
   state[kAccelBiasOffset + 1] = accel_bias.y();
   state[kAccelBiasOffset + 2] = accel_bias.z();
+
+  // Store current velocity for next iteration's acceleration calculation
+  state[kPrevVelOffset + 0] = current_vel.x();
+  state[kPrevVelOffset + 1] = current_vel.y();
+  state[kPrevVelOffset + 2] = current_vel.z();
 
   state[kValidOffset] = 1.0;
 

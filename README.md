@@ -1,8 +1,8 @@
 # Tether Lift — Multi-Quadcopter Cooperative Payload Transport
 
-A Drake-based simulation of **N quadcopters cooperatively lifting and transporting a payload** using flexible rope tethers. The system features cascaded PD control with **tension feedback for smooth payload pickup**, eliminating the jerky motion that occurs when ropes suddenly become taut.
+A Drake-based simulation of **N quadcopters cooperatively lifting and transporting a payload** using flexible rope tethers. Features **GPAC (Geometric Position and Attitude Control)** — a four-layer hierarchical control architecture with geometric attitude tracking, concurrent learning adaptation, and Extended State Observers for robust disturbance rejection.
 
-![Simulation](https://img.shields.io/badge/Drake-C%2B%2B-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+![Simulation](https://img.shields.io/badge/Drake-C%2B%2B-blue) ![GPAC](https://img.shields.io/badge/GPAC-Hierarchical-orange) ![License](https://img.shields.io/badge/License-MIT-green)
 
 ## Overview
 
@@ -12,6 +12,8 @@ This project simulates a challenging robotics scenario: multiple quadcopters mus
 - **Load sharing**: Each quadcopter must carry its share of the payload weight
 - **Formation flight**: Quadcopters maintain relative positions while following a trajectory
 - **Distributed rope dynamics**: Bead-chain rope model captures swing and wave propagation
+- **Geometric Control**: SO(3) attitude control with exponential coordinates for global stability
+- **Adaptive Estimation**: Concurrent learning for online mass estimation without persistent excitation
 
 ## Features
 
@@ -23,6 +25,82 @@ This project simulates a challenging robotics scenario: multiple quadcopters mus
 | **Waypoint Trajectories** | Multi-phase: hover → ascend → translate → descend |
 | **Tension Feedback** | Smooth pickup via ramped tension targets |
 | **Real-time Visualization** | Meshcat 3D viewer with tension plots |
+| **GPAC Architecture** | 4-layer hierarchical control (50/200/200/500 Hz) |
+| **Geometric Attitude** | SO(3) tracking with exponential coordinates |
+| **Concurrent Learning** | Online mass estimation without PE requirement |
+| **Extended State Observer** | Real-time disturbance estimation |
+| **CBF Safety Filter** | Cable tautness and angle constraints |
+
+---
+
+## GPAC: Geometric Position and Attitude Control
+
+The project implements a **four-layer hierarchical control architecture** based on the GPAC framework, designed for geometric precision and robust disturbance rejection:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                    GPAC HIERARCHICAL CONTROL ARCHITECTURE                        │
+├──────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│  Layer 1: Position + Anti-Swing (50 Hz)                                         │
+│  ┌────────────────────────────────────────────────────────────────────────────┐ │
+│  │  • S² swing manifold tracking: q̈ = (I-qq^T)(u_pq + u_dq)/L - g/L e₃ᵀq q   │ │
+│  │  • PD position control: F_des = -Kp*(p-p_d) - Kd*(v-v_d) + m*g*e₃          │ │
+│  │  • Anti-swing: F_swing = Kq*(q_d-q) + Kω*(q_d×ω_q)                         │ │
+│  │  Output: Desired unit vector n_des for attitude controller                  │ │
+│  └────────────────────────────────────────────────────────────────────────────┘ │
+│                          ↓ n_des                                                 │
+│  Layer 2: Geometric Attitude Control (200 Hz)                                    │
+│  ┌────────────────────────────────────────────────────────────────────────────┐ │
+│  │  • SO(3) rotation error: e_R = ½(R_d^T R - R^T R_d)^∨                       │ │
+│  │  • Angular velocity error: e_ω = ω - R^T R_d ω_d                           │ │
+│  │  • Geometric torque: τ = -K_R e_R - K_ω e_ω + ω×Jω + J(ω̂ R^T R_d ω_d - ...) │ │
+│  │  Output: Body torques [τ_x, τ_y, τ_z] with integrated ESO disturbance      │ │
+│  └────────────────────────────────────────────────────────────────────────────┘ │
+│                          ↑ θ̂ (estimated load mass)                              │
+│  Layer 3: Concurrent Learning Estimator (200 Hz)                                 │
+│  ┌────────────────────────────────────────────────────────────────────────────┐ │
+│  │  • Parameter: θ̂ = m_L/N (load share per quadcopter)                        │ │
+│  │  • Gradient descent: θ̇ = -γ Σᵢ Yᵢ^T(Yᵢθ̂ - Żᵢ)                             │ │
+│  │  • History stack: stores (Y, Ż) pairs with rank-maximizing insertion       │ │
+│  │  • No persistent excitation required for convergence                        │ │
+│  └────────────────────────────────────────────────────────────────────────────┘ │
+│                          ↓ disturbance estimates                                 │
+│  Layer 4: Extended State Observer (500 Hz)                                       │
+│  ┌────────────────────────────────────────────────────────────────────────────┐ │
+│  │  • Third-order observer per axis (9 states total)                          │ │
+│  │  • State: [x̂, x̂̇, d̂] where d̂ = lumped disturbance                          │ │
+│  │  • Dynamics: ẋ₁ = x₂ + 3ω₀(x-x₁), ẋ₂ = x₃ + 3ω₀²(x-x₁), ẋ₃ = ω₀³(x-x₁)     │ │
+│  │  • Bandwidth: ω₀ = 15 rad/s (tunable per application)                       │ │
+│  └────────────────────────────────────────────────────────────────────────────┘ │
+│                                                                                  │
+│  Safety Layer: Control Barrier Function Filter                                   │
+│  ┌────────────────────────────────────────────────────────────────────────────┐ │
+│  │  • Tautness constraint: h₁ = ||p_q - p_L|| - L_min > 0                     │ │
+│  │  • Cable angle constraint: h₂ = cos(θ) - cos(θ_max) > 0                    │ │
+│  │  • QP: min ||u - u_nom||² s.t. ḣ + αh ≥ 0                                  │ │
+│  └────────────────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### GPAC Mathematical Foundation
+
+| Component | Manifold | Key Property |
+|-----------|----------|--------------|
+| **Attitude** | SO(3) | Global exponential stability, no singularities |
+| **Cable Direction** | S² (unit sphere) | Natural swing dynamics representation |
+| **Position** | ℝ³ | Euclidean tracking with anti-swing coupling |
+
+### Implementation Files
+
+| File | Layer | Purpose |
+|------|-------|---------|
+| `gpac_load_tracking_controller.h/cc` | 1 | Position + S² anti-swing |
+| `gpac_quadcopter_controller.h/cc` | 2 | Geometric SO(3) attitude |
+| `concurrent_learning_estimator.h/cc` | 3 | Adaptive mass estimation |
+| `extended_state_observer.h/cc` | 4 | Disturbance estimation |
+| `gpac_cbf_safety_filter.h/cc` | Safety | CBF constraint enforcement |
+| `gpac_math.h` | Utility | SO(3)/S² operations |
 
 ---
 
@@ -334,32 +412,115 @@ See [cpp/README.md](cpp/README.md) for detailed file format documentation.
 ```
 Tether_Lift/
 ├── README.md                   # This file
+├── GPAC_Implementation_Plan.md # GPAC architecture design document
 ├── outputs/
 │   └── logs/                   # Timestamped simulation data
 ├── cpp/                        # C++ implementation
 │   ├── CMakeLists.txt
-│   ├── README.md               # Build instructions
+│   ├── README.md               # Build instructions & detailed docs
 │   ├── include/
+│   │   │ # Core Simulation
 │   │   ├── quadcopter_controller.h
 │   │   ├── rope_force_system.h
 │   │   ├── rope_utils.h
 │   │   ├── rope_visualizer.h
 │   │   ├── tension_plotter.h
+│   │   │
+│   │   │ # GPAC Components
+│   │   ├── gpac_math.h                    # SO(3)/S² operations
+│   │   ├── extended_state_observer.h      # Layer 4: ESO
+│   │   ├── gpac_quadcopter_controller.h   # Layer 2: Geometric attitude
+│   │   ├── gpac_load_tracking_controller.h # Layer 1: Position + anti-swing
+│   │   ├── concurrent_learning_estimator.h # Layer 3: Adaptive estimation
+│   │   ├── gpac_cbf_safety_filter.h       # CBF safety filter
+│   │   │
+│   │   │ # State Estimation
+│   │   ├── imu_sensor.h
+│   │   ├── barometer_sensor.h
+│   │   ├── gps_sensor.h
+│   │   ├── eskf_estimator.h
+│   │   │
+│   │   │ # Visualization & Logging
 │   │   ├── trajectory_visualizer.h
 │   │   └── simulation_data_logger.h
 │   └── src/
 │       ├── main.cc
-│       ├── quadcopter_controller.cc
-│       ├── rope_force_system.cc
-│       ├── rope_utils.cc
-│       ├── rope_visualizer.cc
-│       ├── tension_plotter.cc
-│       ├── trajectory_visualizer.cc
-│       └── simulation_data_logger.cc
+│       └── ... (implementations)
 ├── scripts/                    # Python prototype
 │   └── quad_rope_lift.py
 ├── drake/                      # Drake source (submodule)
 └── References/                 # Design documents
+```
+
+---
+
+## Sensor Suite
+
+The simulation includes a comprehensive sensor suite for realistic state estimation:
+
+### IMU Sensor (200 Hz)
+| Parameter | Gyroscope | Accelerometer |
+|-----------|-----------|---------------|
+| White noise density | 0.0005 rad/s/√Hz | 0.004 m/s²/√Hz |
+| Bias instability | 1e-4 rad/s | 1e-3 m/s² |
+| Bias time constant | 3600 s | 3600 s |
+
+Features:
+- Gauss-Markov bias dynamics
+- Per-quad random seeds for reproducibility
+- Numerical acceleration via velocity differentiation
+
+### Barometer Sensor (25 Hz)
+| Parameter | Value |
+|-----------|-------|
+| White noise stddev | 0.3 m |
+| Correlated noise stddev | 0.2 m |
+| Correlation time | 5.0 s |
+| Bias drift rate | 0.002 m/s |
+
+### GPS Sensor (10 Hz)
+| Parameter | Value |
+|-----------|-------|
+| Position noise (x,y) | 0.02 m |
+| Position noise (z) | 0.05 m |
+
+### Wind Disturbance System
+Dryden turbulence model with:
+- Mean wind: [1.0, 0.5, 0.0] m/s (configurable)
+- Turbulence intensities: σu=0.5, σv=0.5, σw=0.25 m/s
+- Altitude-dependent scaling
+- Optional gust events
+
+---
+
+## Data Logging
+
+The simulation logs comprehensive data to timestamped CSV files:
+
+**Output Location:** `/workspaces/Tether_Lift/outputs/logs/YYYYMMDD_HHMMSS/`
+
+### Log Files Generated
+
+| File | Content | Rate |
+|------|---------|------|
+| `trajectories.csv` | Ground truth state (pose + velocity) for load and all drones | 100 Hz |
+| `imu_measurements.csv` | 6-DOF IMU data [ax,ay,az,wx,wy,wz] per drone | 100 Hz |
+| `barometer_measurements.csv` | Altitude readings per drone | 100 Hz |
+| `gps_measurements.csv` | GPS position [x,y,z] for load and drones | 100 Hz |
+| `estimator_outputs.csv` | Estimated states from EKF/ESKF | 100 Hz |
+| `tensions.csv` | Rope tension magnitudes and force vectors | 100 Hz |
+| `control_efforts.csv` | Control torques [τx,τy,τz] and forces [fx,fy,fz] | 100 Hz |
+| `attitude_data.csv` | Roll/pitch/yaw, desired attitudes, attitude errors | 100 Hz |
+| `wind_disturbance.csv` | Wind velocity [vx,vy,vz] | 100 Hz |
+| `config.txt` | Simulation parameters and configuration | Once |
+
+### Data Format Example
+
+```csv
+# trajectories.csv
+time,load_x,load_y,load_z,load_vx,load_vy,load_vz,load_qw,load_qx,load_qy,load_qz,...
+0.000000,0.000000,0.000000,0.160000,0.000000,0.000000,0.000000,1.000000,0.000000,...
+0.010000,0.000000,0.000000,0.159500,0.000000,0.000000,-0.098100,1.000000,0.000000,...
 ```
 
 ---

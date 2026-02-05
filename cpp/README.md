@@ -13,13 +13,53 @@ Drake simulation of multiple quadcopters cooperatively lifting a payload using f
 - **Real-time tension plots** in Meshcat with 3D line graphs and bar indicators
 - **Real-time visualization** via Meshcat with colored ropes per quadcopter
 
-### State Estimation (Phase 1-2)
-- **IMU Sensor Model** - Gauss-Markov bias dynamics, configurable consumer/tactical grade
-- **Barometer Sensor** - Three-component noise (white + correlated + drift)
-- **GPS Sensor** - Position noise, multipath effects, dropouts
+### GPAC: Geometric Position and Attitude Control (NEW)
+- **Layer 1 - Position + Anti-swing Control** (50 Hz)
+  - PID position tracking with integral anti-windup
+  - S² cable direction control [Eq. 8-9] for anti-swing
+  - ESO disturbance feedforward compensation
+- **Layer 2 - Geometric Attitude Control** (200 Hz)
+  - SO(3) attitude error using geometric formulation [Eq. 12]
+  - Desired rotation from thrust direction [Eq. 19-20]
+  - Proper angular velocity error tracking
+- **Layer 3 - Concurrent Learning Estimator** (200 Hz)
+  - Adaptive load mass estimation
+  - History stack with rank-maximizing data selection
+  - Guaranteed convergence without persistent excitation
+- **Layer 4 - Extended State Observer** (500 Hz)
+  - Third-order ESO for disturbance estimation
+  - Per-axis observers with configurable bandwidth
+  - Lumped uncertainty compensation
+- **CBF Safety Filter** - Tautness constraints for cable-suspended loads
+  - Tension bounds (min/max)
+  - Cable angle limits
+  - Swing rate constraints
+  - Quadcopter tilt limits
+
+### Sensor Suite (Phase 1-2)
+- **IMU Sensor** (200 Hz)
+  - 6-DOF: 3-axis gyroscope + 3-axis accelerometer
+  - Gauss-Markov bias dynamics with configurable time constants
+  - Consumer-grade noise: gyro 0.0005 rad/s/√Hz, accel 0.004 m/s²/√Hz
+  - Numerical acceleration via velocity differentiation
+- **Barometer Sensor** (25 Hz)
+  - Three-component noise: white (0.3m) + correlated (0.2m, τ=5s) + drift
+  - Altitude quantization (0.1m resolution)
+- **GPS Sensor** (10 Hz)
+  - Position noise: 0.02m (x,y), 0.05m (z)
+  - Validity flag for dropout modeling
+- **Wind Disturbance System** (100 Hz)
+  - Dryden turbulence model with spatial correlation
+  - Mean wind: [1.0, 0.5, 0.0] m/s (configurable)
+  - Turbulence intensities: σu=0.5, σv=0.5, σw=0.25 m/s
+  - Altitude-dependent scaling
+
+### State Estimation
 - **15-State ESKF** - Error-State Kalman Filter fusing IMU/GPS/Barometer
   - State: [δp(3), δv(3), δθ(3), δb_a(3), δb_g(3)]
   - Multiplicative quaternion error representation (MEKF)
+- **Position/Velocity Estimator** - Legacy 6-state EKF
+- **Load Estimator** - EKF with taut-gated cable constraints
 
 ### Decentralized Adaptive Control (Phase 3-4)
 - **Adaptive Load Estimator** - Concurrent learning for θ̂ = m_L/N estimation
@@ -32,27 +72,27 @@ Drake simulation of multiple quadcopters cooperatively lifting a payload using f
 
 ### Trajectory and Safety (Phase 5-7)
 - **Load-Centric Trajectory Generator** - Minimum-jerk smooth trajectories
-  - Waypoint interpolation with dynamic limits
-  - Load is "virtual leader", quads track via formation offset
+  - 12D output: [position, velocity, acceleration, jerk]
+  - Feasibility checking for horizontal acceleration limits
+  - Waypoint interpolation with hold times
+- **Required Force Computer** - Computes F_req from load tracking error
+- **Force Allocation System** - Equal-share allocation to drones
+- **Drone Trajectory Mapper** - Maps load trajectory to per-drone via cable geometry
 - **CBF Safety Filter** - Control Barrier Functions for constraint enforcement
   - Cable tension bounds (min/max)
   - Cable angle limits
-  - Inter-vehicle collision avoidance
+  - Butterworth-filtered tension rate estimation
 - **Wind Disturbance Model** - Dryden turbulence with spatial correlation
-  - Mean wind, turbulent fluctuations, gust events
-  - Altitude-dependent intensity
 
 ### Visualization & Data Logging
 - **Trajectory Visualizer** - Real-time Meshcat visualization
   - Green reference trajectory line showing expected load path
   - Orange trail showing actual load position history
   - Colored trails for each drone's path
-- **Comprehensive Data Logger** - Timestamped CSV output
-  - Ground truth trajectories (load + all drones)
-  - Rope tensions (magnitude + force vectors)
-  - Control efforts (torques + forces)
-  - GPS measurements and estimator outputs
-  - Simulation configuration parameters
+- **Comprehensive Data Logger** - Timestamped CSV output (12 files)
+  - Output: `/workspaces/Tether_Lift/outputs/logs/YYYYMMDD_HHMMSS/`
+  - 100 Hz logging with automatic buffer flushing
+  - Files: trajectories, imu, barometer, gps, estimator, tensions, control, attitude, wind, config
 
 ## Building
 
@@ -107,19 +147,29 @@ cpp/
 │   ├── rope_visualizer.h           # Meshcat polyline visualization
 │   ├── tension_plotter.h           # Real-time tension graph visualization
 │   │
-│   │ # State Estimation (Phase 1-2)
-│   ├── imu_sensor.h                # 6-DOF IMU with Gauss-Markov bias
-│   ├── barometer_sensor.h          # Altitude sensor with three-component noise
-│   ├── gps_sensor.h                # GPS sensor with noise and dropouts
+│   │ # GPAC: Geometric Position and Attitude Control (Layers 1-4)
+│   ├── gpac_math.h                 # SO(3)/S² operations: Hat, Vee, rotation errors
+│   ├── gpac_load_tracking_controller.h # Layer 1: Position + S² anti-swing (50 Hz)
+│   ├── gpac_quadcopter_controller.h    # Layer 2: Geometric SO(3) attitude (200 Hz)
+│   ├── concurrent_learning_estimator.h # Layer 3: Adaptive mass estimation (200 Hz)
+│   ├── extended_state_observer.h       # Layer 4: Disturbance estimation (500 Hz)
+│   ├── gpac_cbf_safety_filter.h        # CBF tautness constraints
+│   │
+│   │ # Sensors (Phase 1)
+│   ├── imu_sensor.h                # 6-DOF IMU with Gauss-Markov bias (200 Hz)
+│   ├── barometer_sensor.h          # Altitude with 3-component noise (25 Hz)
+│   ├── gps_sensor.h                # GPS position with noise (10 Hz)
+│   │
+│   │ # State Estimation (Phase 2)
 │   ├── eskf_estimator.h            # 15-state Error-State Kalman Filter
-│   ├── position_velocity_estimator.h  # Legacy EKF for quadcopter state
+│   ├── position_velocity_estimator.h  # Legacy 6-state EKF for quadcopters
 │   ├── load_estimator.h            # Legacy EKF with taut-gated constraints
-│   ├── estimation_utils.h          # Helper systems for estimation pipeline
+│   ├── estimation_utils.h          # Helper systems (position extractors, etc.)
 │   ├── estimation_error_computer.h # Ground truth comparison
 │   │
 │   │ # Decentralized Adaptive Control (Phase 3-4)
 │   ├── adaptive_load_estimator.h   # Concurrent learning θ̂ = m_L/N estimation
-│   ├── decentralized_load_estimator.h # Local load state estimation per quad
+│   ├── decentralized_load_estimator.h # Local load state per quad
 │   ├── adaptive_lift_controller.h  # N-independent controller using θ̂
 │   │
 │   │ # Trajectory and Safety (Phase 5-7)
@@ -127,33 +177,59 @@ cpp/
 │   ├── cbf_safety_filter.h         # Control Barrier Function safety
 │   ├── wind_disturbance.h          # Dryden turbulence wind model
 │   │
-│   │ # Visualization & Data Logging
-│   ├── trajectory_visualizer.h     # Reference + actual trajectory viz
-│   └── simulation_data_logger.h    # Comprehensive CSV data logging
+│   │ # Visualization (No .h in include - defined in src/)
+│   └── (visualization headers in src/)
 │
 └── src/
     ├── main.cc                     # Multi-quad simulation setup and main loop
+    │
+    │ # Core
     ├── quadcopter_controller.cc
     ├── rope_force_system.cc
     ├── rope_utils.cc
     ├── rope_visualizer.cc
     ├── tension_plotter.cc
+    │
+    │ # GPAC Components
+    ├── gpac_quadcopter_controller.cc   # Layer 2: Geometric attitude control
+    ├── gpac_load_tracking_controller.cc # Layer 1: Position + anti-swing
+    ├── concurrent_learning_estimator.cc # Layer 3: Adaptive estimation
+    ├── extended_state_observer.cc      # Layer 4: ESO implementation
+    ├── gpac_cbf_safety_filter.cc       # CBF tautness filter
+    │
+    │ # Sensors
     ├── imu_sensor.cc
     ├── barometer_sensor.cc
     ├── gps_sensor.cc
+    │
+    │ # State Estimation
     ├── eskf_estimator.cc
     ├── position_velocity_estimator.cc
     ├── load_estimator.cc
     ├── estimation_utils.cc
     ├── estimation_error_computer.cc
+    │
+    │ # Adaptive Control
     ├── adaptive_load_estimator.cc
     ├── decentralized_load_estimator.cc
     ├── adaptive_lift_controller.cc
+    │
+    │ # Trajectory & Safety
     ├── load_trajectory_generator.cc
     ├── cbf_safety_filter.cc
     ├── wind_disturbance.cc
-    ├── trajectory_visualizer.cc
-    └── simulation_data_logger.cc
+    │
+    │ # Load Trajectory Following Pipeline
+    ├── required_force_computer.h/cc    # F_req from load tracking error
+    ├── force_allocation_system.h/cc    # Equal-share allocation
+    ├── drone_trajectory_mapper.h/cc    # Load → drone trajectory
+    ├── extended_load_trajectory_generator.h/cc # 12D trajectory [p,v,a,j]
+    ├── load_tracking_controller.h/cc   # Full load tracking control
+    ├── decentralized_drone_controller.h/cc # N-independent controller
+    │
+    │ # Visualization & Logging
+    ├── trajectory_visualizer.h/cc      # Reference + actual trajectory viz
+    └── simulation_data_logger.h/cc     # Comprehensive CSV logging (12 files)
 ```
 
 ## Physical Model
@@ -322,12 +398,47 @@ Quad 2: mean=0.95m, stddev=0.06m -> sampled=0.995377m
 
 Average sampled rope length: 1.00475m
 
-Starting multi-quadcopter simulation...
-  Number of quadcopters: 3
-  Payload mass: 3 kg
-  Load per quadcopter: 1 kg
-  Duration: 15 s
-Open Meshcat at: http://localhost:7000
+
+========================================
+State Estimation Enabled
+========================================
+GPS sample rate: 10 Hz
+GPS noise (x,y,z): 0.02 0.02 0.05 m
+Estimator rate: 100 Hz
+Use estimated in controller: NO
+========================================
+
+
+========================================
+IMU Sensors Enabled
+========================================
+IMU sample rate: 200 Hz
+Gyro noise density: 0.0005 0.0005 0.0005 rad/s/sqrt(Hz)
+Accel noise density: 0.004 0.004 0.004 m/s^2/sqrt(Hz)
+========================================
+
+
+========================================
+Barometer Sensors Enabled
+========================================
+Barometer sample rate: 25 Hz
+White noise stddev: 0.3 m
+Correlated noise stddev: 0.2 m
+========================================
+
+
+========================================
+Wind Disturbance Enabled
+========================================
+Mean wind:   1 0.5   0 m/s
+Turbulence (u,v,w): 0.5, 0.5, 0.25 m/s
+Gusts enabled: NO
+========================================
+
+[Meshcat listening for connections at http://localhost:7000]
+Data logger initialized. Output directory: /workspaces/Tether_Lift/outputs/logs/20260204_185348
+
+Configuration saved to: /workspaces/Tether_Lift/outputs/logs/20260204_185348/config.txt
 
   Simulated 1s / 15s
   ...
@@ -488,7 +599,22 @@ waypoint_0_hold_time = 1.000000
 
 ### Logging Rate
 
-Data is logged at 100 Hz (configurable via `log_period` parameter).
+Data is logged at 100 Hz (configurable via `log_period` parameter). Automatic buffer flushing every 10 samples ensures data integrity even if simulation is interrupted.
+
+### Log Files Generated
+
+| File | Content | Columns |
+|------|---------|---------|
+| `trajectories.csv` | Ground truth state | time, load_[x,y,z,vx,vy,vz,qw,qx,qy,qz,wx,wy,wz], drone{N}_[...] |
+| `imu_measurements.csv` | 6-DOF IMU data | time, drone{N}_[ax,ay,az,wx,wy,wz] |
+| `barometer_measurements.csv` | Altitude readings | time, drone{N}_altitude |
+| `gps_measurements.csv` | GPS positions | time, load_gps_[x,y,z], drone{N}_gps_[x,y,z] |
+| `estimator_outputs.csv` | EKF/ESKF estimates | time, load_est_[x,y,z,vx,vy,vz], drone{N}_est_[...] |
+| `tensions.csv` | Rope forces | time, rope{N}_[mag,fx,fy,fz] |
+| `control_efforts.csv` | Control outputs | time, drone{N}_[tau_x,tau_y,tau_z,f_x,f_y,f_z] |
+| `attitude_data.csv` | Orientation data | time, drone{N}_[roll,pitch,yaw,des_qw,...,err_x,err_y,err_z] |
+| `wind_disturbance.csv` | Wind velocities | time, wind_[vx,vy,vz] |
+| `config.txt` | Parameters | Key-value pairs |
 
 ### Post-Processing
 

@@ -54,6 +54,12 @@ add_executable(quad_rope_lift
     src/trajectory_visualizer.cc
     # Data logging
     src/simulation_data_logger.cc
+    # GPAC: Geometric Position and Attitude Control enhancements
+    src/extended_state_observer.cc          # Layer 4: ESO disturbance observer
+    src/gpac_quadcopter_controller.cc       # Layer 2: Geometric attitude control
+    src/gpac_load_tracking_controller.cc    # Layer 1: Position + Anti-swing
+    src/concurrent_learning_estimator.cc    # Layer 3: Adaptive estimation
+    src/gpac_cbf_safety_filter.cc           # CBF: Tautness constraints
 )
 
 target_include_directories(quad_rope_lift PRIVATE
