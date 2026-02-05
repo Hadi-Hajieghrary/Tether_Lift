@@ -3,7 +3,7 @@ This paper presented the Geometric Position and Attitude Control (GPAC) architec
 \begin{enumerate}
   \item A concurrent learning adaptive law enables each drone to independently estimate its payload share $\hat{\theta}_i \to m_L/N$ without persistent excitation, converging in approximately 8\,s and improving tracking by 33\% over gradient-only adaptation.
   \item A modular CBF safety filter enforces cable tautness, swing angle, tilt, and collision constraints with input-to-state safety (ISSf) guarantees bounding constraint violations under disturbances, provably compatible with the geometric attitude controller (Theorem~\ref{thm:compatibility}).
-  \item The decentralized architecture achieves 23.8\,cm payload tracking RMSE in a high-fidelity Drake-based simulation with flexible bead-chain cables, onboard sensor fusion (ESKF), and Dryden wind turbulence, while requiring less than 1\,MFLOP/s per agent.
+  \item The decentralized architecture achieves 22.9\,cm payload tracking RMSE in a high-fidelity Drake-based simulation with flexible bead-chain cables, onboard sensor fusion (ESKF), and Dryden wind turbulence, while requiring less than 1\,MFLOP/s per agent.
 \end{enumerate}
 
 \subsection{Limitations and Future Work}
@@ -20,10 +20,10 @@ The architecture assumes that all drones receive a common desired trajectory $p_
 The current analysis assumes a fixed number of agents $N$ throughout the mission. Agent dropout (cable failure or quadrotor loss) and dynamic team reconfiguration are not addressed. The adaptive estimator would need to detect and respond to changes in $N$, which modifies the equilibrium $\theta_i = m_L / N$.
 
 \paragraph{Decentralized Estimation Gap}
-The decentralized load estimator achieves 38.7\,cm RMSE compared to 12.4\,cm for the centralized baseline---a $3.1\times$ performance gap attributable to the single-cable geometric observability limitation~\eqref{eq:decentral_vs_central}. Distributed consensus-based estimation that fuses partial information from neighboring agents could narrow this gap while preserving communication efficiency.
+The decentralized load estimator achieves 49.5\,cm RMSE compared to 12.4\,cm for the centralized baseline---a $4.0\times$ performance gap attributable to the single-cable geometric observability limitation~\eqref{eq:decentral_vs_central}. Distributed consensus-based estimation that fuses partial information from neighboring agents could narrow this gap while preserving communication efficiency.
 
 \paragraph{CBF Conservatism}
-The sequential gradient projection enforces constraints in priority order, which can be suboptimal when multiple constraints are simultaneously active. The cable angle constraint is violated for 3.2\% of the simulation time (within the ISSf margin), suggesting that a full QP-based multi-constraint resolution with slack variables could improve constraint satisfaction during aggressive maneuvers.
+The sequential gradient projection enforces constraints in priority order, which can be suboptimal when multiple constraints are simultaneously active. The cable angle constraint is violated for 1.7\% of the simulation time (within the ISSf margin), suggesting that a full QP-based multi-constraint resolution with slack variables could improve constraint satisfaction during aggressive maneuvers.
 
 \vspace{0.5em}
 \noindent Despite these limitations, the GPAC architecture demonstrates that cooperative transport with ISSf safety guarantees and operational decentralization (with broadcast trajectory) is achievable with lightweight computation, laying the groundwork for scalable multi-UAV payload delivery systems.

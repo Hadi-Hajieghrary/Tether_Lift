@@ -133,16 +133,18 @@ void CableDirectionFromTension::CalcDirection(
     Eigen::Vector3d force_dir(tension_vec[1], tension_vec[2], tension_vec[3]);
     double norm = force_dir.norm();
     if (norm > 1e-8) {
-      force_dir /= norm;
+      // Negate: tension force points quad→load, but the estimator's
+      // measurement model (p_L = p_Q - L*n) expects n pointing load→quad.
+      force_dir = -force_dir / norm;
       output->SetFromVector(force_dir);
       return;
     }
   }
 
-  // Default: straight down
+  // Default: straight up (load below quad → direction load→quad is +z)
   output->SetAtIndex(0, 0.0);
   output->SetAtIndex(1, 0.0);
-  output->SetAtIndex(2, -1.0);
+  output->SetAtIndex(2, 1.0);
 }
 
 }  // namespace quad_rope_lift

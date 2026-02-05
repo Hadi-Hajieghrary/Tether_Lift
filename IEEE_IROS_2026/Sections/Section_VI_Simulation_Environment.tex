@@ -21,7 +21,7 @@ The core simulation engine is a \texttt{MultibodyPlant} configured with the foll
 
 The simulation constructs the following rigid bodies (summarized in Table~\ref{tab:sim_params}):
 
-\paragraph{Quadcopters} $N = 3$ free-floating rigid bodies, each with mass $m_Q = 1.5$\,kg and box inertia ($0.30 \times 0.30 \times 0.10$\,m). The quadrotor visual mesh is loaded from Drake's built-in URDF model and welded to each body for rendering. The quadcopters are initialized in a circular formation with radius $r_f = 0.5$\,m at altitude $z_0 = 1.2$\,m, centered above the payload:
+\paragraph{Quadcopters} $N = 3$ free-floating rigid bodies, each with mass $m_Q = 1.5$\,kg and box inertia ($0.30 \times 0.30 \times 0.10$\,m). The quadrotor visual mesh is loaded from Drake's built-in URDF model and welded to each body for rendering. The quadcopters are initialized in a circular formation with radius $r_f = 0.6$\,m at altitude $z_0 = 1.2$\,m, centered above the payload:
 \begin{equation}
   p_{i}(0) = \bigl[r_f \cos(2\pi i / N),\;\, r_f \sin(2\pi i / N),\;\, z_0\bigr]^\top\!, \quad i = 0, \ldots, N\!-\!1.
   \label{eq:formation_init}

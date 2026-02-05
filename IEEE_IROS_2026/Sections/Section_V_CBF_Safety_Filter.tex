@@ -298,7 +298,7 @@ The total per-agent computational cost of the safety filter is dominated by the 
 \label{sec:safety:tradeoffs}
 % ============================================================
 
-Any safety filter necessarily sacrifices some tracking performance when it intervenes: the filtered force $f_{\mathrm{safe}}$ deviates from the nominal $f_{\mathrm{nom}}$, introducing a persistent tracking error proportional to the projection magnitude~\eqref{eq:force_modification}. In our experiments (Section~\ref{sec:results:safety}), the CBF is active for only 3.2\% of the simulation time, concentrated in smooth bursts during aggressive cornering. The tracking RMSE increases by less than 2\% when the CBF is active versus inactive (24.2\,cm vs.\ 23.8\,cm), indicating that the safety overlay imposes minimal performance cost under normal operation.
+Any safety filter necessarily sacrifices some tracking performance when it intervenes: the filtered force $f_{\mathrm{safe}}$ deviates from the nominal $f_{\mathrm{nom}}$, introducing a persistent tracking error proportional to the projection magnitude~\eqref{eq:force_modification}. In our experiments (Section~\ref{sec:results:safety}), the CBF is active for only 1.7\% of the simulation time, concentrated in smooth bursts during aggressive cornering. The tracking RMSE increases by less than 2\% when the CBF is active versus inactive (24.2\,cm vs.\ 22.9\,cm), indicating that the safety overlay imposes minimal performance cost under normal operation.
 
 Three mechanisms mitigate the chattering that would otherwise arise from switching between constrained and unconstrained regimes:
 \begin{enumerate}
