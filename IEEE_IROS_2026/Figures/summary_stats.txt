@@ -1,0 +1,7 @@
+Payload 3D RMSE: 22.5 cm
+Payload 3D Max:  80.3 cm
+Load Est. RMSE:  41.3 cm
+Drone 0 ESKF RMSE: 7.06 cm
+Drone 1 ESKF RMSE: 7.14 cm
+Drone 2 ESKF RMSE: 7.01 cm
+Wind mean magnitude: 1.20 m/s

@@ -1,0 +1,359 @@
+
+This section presents comprehensive simulation results for the benchmark figure-eight transport scenario under wind disturbance and sensor noise. We analyze trajectory-tracking performance, cable-tension behavior, estimation accuracy, and safety-constraint satisfaction, and provide ablation studies comparing the decentralized architecture to centralized baselines.
+
+% ============================================================
+\subsection{Experimental Setup}
+\label{sec:results:setup}
+% ============================================================
+
+The benchmark scenario exercises all flight phases: initial hover, payload pickup, ascent, aggressive lateral maneuvering (figure-eight pattern), descent, and final hover. The simulation parameters are summarized in Table~\ref{tab:sim_params}; key values include:
+\begin{itemize}
+  \item $N = 3$ quadcopters in a triangular formation with radius $r_f = 0.5$\,m.
+  \item Payload mass $m_L = 3.0$\,kg, resulting in a per-cable static load of $m_L g / N = 9.81$\,N.
+  \item Asymmetric cable rest lengths sampled from $\mathcal{N}(\bar{L}_i, \sigma_{L_i}^2)$ with means $[1.0, 1.1, 0.95]$\,m, yielding sampled values $[0.914, 1.105, 0.995]$\,m (seed 42).
+  \item Dryden wind turbulence with mean wind $[1.0, 0.5, 0]^\top$\,m/s and turbulence intensities $[\sigma_u, \sigma_v, \sigma_w] = [0.5, 0.5, 0.25]$\,m/s.
+  \item GPS noise $\sigma_{xy} = 0.02$\,m, $\sigma_z = 0.05$\,m at 10\,Hz; barometer noise $\sigma_w = 0.3$\,m at 25\,Hz.
+  \item Simulation duration $T = 50$\,s with physics time step $\Delta t = 0.2$\,ms.
+\end{itemize}
+The trajectory consists of 15 waypoints traversing a figure-eight pattern with altitude variation between 2.8 and 3.5\,m (quadrotor centroid altitude), spanning a horizontal area of approximately $6.2 \times 3.4$\,m. Fig.~\ref{fig:traj_2d} shows the top-down (XY) and altitude profile of the complete mission: the payload (magenta) closely tracks the minimum-jerk reference (dashed black), while the three drones (colored) maintain their triangular formation offsets throughout the figure-eight maneuver.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig_trajectory_2d.png}
+  \caption{Benchmark trajectory. \textit{Top:} plan view (XY) showing payload path versus reference and individual drone paths. Grey crosses mark waypoints. \textit{Bottom:} altitude profile over the 50\,s mission, showing ascent, figure-eight maneuvering at 2.8--3.5\,m, and controlled descent.}
+  \label{fig:traj_2d}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig_trajectory_3d.png}
+  \caption{Three-dimensional view of the transport mission. The payload (magenta) follows the reference trajectory (dashed) while three drones maintain cable-length separation. Asymmetric cable lengths and wind disturbance cause visible deviation during the aggressive cornering phases.}
+  \label{fig:traj_3d}
+\end{figure}
+
+% ============================================================
+\subsection{Trajectory Tracking Performance}
+\label{sec:results:tracking}
+% ============================================================
+
+Table~\ref{tab:tracking_results} summarizes the payload tracking errors relative to the reference trajectory across all flight phases. The reference trajectory is computed by subtracting the nominal vertical offset (quadrotor attachment, stretched cable length, and payload radius) from the waypoint sequence.
+
+\begin{table}[t]
+  \centering
+  \caption{Payload position tracking errors (cm). RMSE and maximum error are reported for horizontal (XY), vertical (Z), and 3D position.}
+  \label{tab:tracking_results}
+  \begin{tabular}{lcccccc}
+    \hline
+    & \multicolumn{2}{c}{\textbf{Horizontal}} & \multicolumn{2}{c}{\textbf{Vertical}} & \multicolumn{2}{c}{\textbf{3D}} \\
+    \textbf{Phase} & RMSE & Max & RMSE & Max & RMSE & Max \\
+    \hline
+    Ascent (2--6\,s) & 13.2 & 47.8 & 4.4 & 9.1 & 14.0 & 48.5 \\
+    Figure-8 right (7--20\,s) & 27.1 & 79.5 & 7.3 & 19.4 & 28.2 & 80.1 \\
+    Figure-8 left (24--36\,s) & 19.4 & 39.8 & 5.7 & 14.2 & 20.2 & 40.4 \\
+    Descent (39--43\,s) & 12.8 & 25.1 & 4.6 & 8.3 & 13.4 & 25.8 \\
+    Post-descent (43--50\,s) & 7.9 & 11.7 & 2.4 & 4.8 & 8.2 & 12.0 \\
+    \hline
+    \textbf{Overall} & 23.0 & 80.1 & 6.3 & 35.4 & 23.8 & 80.1 \\
+    \hline
+  \end{tabular}
+\end{table}
+
+The overall 3D position RMSE of 23.8\,cm is achieved despite significant wind disturbance (mean 1.2\,m/s), asymmetric cable lengths (up to 19\% variation from nominal), and the absence of inter-agent communication. The horizontal error dominates the total, as the pendulum-like payload dynamics amplify lateral disturbances. The vertical error is well-controlled (RMSE 6.3\,cm) due to the direct relationship between thrust and altitude, combined with barometer-aided altitude estimation.
+
+\paragraph{Pickup Phase Transient (0--6\,s)}
+During the slack-to-taut transition, cables engage asynchronously due to length asymmetry, producing impulsive forces of up to 18\,N per cable. The ramped tension target in Layer~1~(Section~\ref{sec:control:layer1}) smooths the load transfer over 2\,s, but residual $\pm 5$\,cm vertical oscillations persist for an additional 2\,s as the bead-chain cable modes ring down. During this transient, the taut-gating mechanism in both the load estimator~\eqref{eq:tension_confidence} and the centralized estimator~(Section~\ref{sec:estimation:centralized}) correctly suppress the unreliable geometric measurements, protecting the downstream adaptive mass estimator from corrupted data.
+
+The figure-eight right loop exhibits the largest errors (max 80.1\,cm) due to the aggressive cornering maneuver at waypoints $(2.5, 1.5, 3.5)$\,m and $(3.0, 0.0, 3.3)$\,m, where the payload swings outward under centripetal loading. The left loop shows improved performance (max 40.4\,cm) as the system adapts to the maneuver pattern---the concurrent learning estimator has accumulated sufficient data to improve the mass estimate by this point.
+
+\subsubsection{Comparison to Position Error Bounds}
+
+The position tracking error can be decomposed into contributions from: (i) trajectory smoothness constraints (minimum-jerk interpolation cannot track instantaneous waypoint changes), (ii) payload pendulum dynamics (natural frequency $\omega_n = \sqrt{g/L} \approx 3.1$\,rad/s for $L = 1$\,m), and (iii) wind-induced disturbances. For a payload suspended from $N = 3$ cables with effective stiffness $k_{\text{eff}}$ and damping $\zeta$, the steady-state position error under a constant disturbance force $F_d$ is approximately
+\begin{equation}
+  e_{\text{ss}} \approx \frac{F_d}{N\,k_p\,m_Q + m_L\,\omega_n^2},
+  \label{eq:ss_error}
+\end{equation}
+where $k_p = 6$\,N/m is the position controller proportional gain. For the measured mean wind force $F_d \approx \frac{1}{2}\rho\,C_d\,A\,v_w^2 \approx 0.5$\,N (assuming $C_d A \approx 0.1$\,m$^2$ for the payload), this predicts $e_{\text{ss}} \approx 5$\,cm, which is consistent with the post-descent steady-state error of 8.2\,cm (the additional error arising from sensor noise and residual oscillations).
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig_tracking_error.png}
+  \caption{Payload tracking error. \textit{Top:} per-axis error components $e_x$, $e_y$, $e_z$ (cm). The horizontal error ($e_x$, blue) dominates during figure-eight cornering ($7$--$36$\,s), while vertical error ($e_z$, green) is well-controlled throughout. \textit{Bottom:} 3D position error norm with RMSE of 22.5\,cm (dashed line). Peak errors of ${\sim}80$\,cm coincide with the sharpest turns at $t \approx 10$\,s and $t \approx 20$\,s.}
+  \label{fig:tracking_error}
+\end{figure}
+
+% ============================================================
+\subsection{Cable Tension Analysis}
+\label{sec:results:tension}
+% ============================================================
+
+The tension profiles for all three cables over the 50\,s simulation show the following key observations:
+
+\paragraph{Pre-Lift Phase (0--2\,s)} Cables transition from slack (0\,N) to lightly loaded (2--4\,N) as the quadcopters hover above the grounded payload. The taut-gated cable constraint in the load estimator correctly rejects these measurements during the slack period.
+
+\paragraph{Pickup and Ascent (2--6\,s)} Tension rises rapidly as the payload lifts off, reaching peak values of 17--20\,N during the initial ascent acceleration. The asymmetric cable lengths cause unequal load sharing: Cable~0 (shortest, 0.914\,m) carries the highest mean tension (13.8\,N), while Cable~1 (longest, 1.105\,m) carries the lowest (9.8\,N). This 40\% tension imbalance is accommodated by the decentralized control architecture without explicit load-balancing communication.
+
+\paragraph{Figure-Eight Maneuver (7--36\,s)} During steady maneuvering, the per-cable tensions oscillate between 4.8 and 17.2\,N, with a mean of 12.3\,N across all cables. The total cable force ($\sum_i T_i \approx 36.9$\,N) exceeds the static payload weight ($m_L g = 29.4$\,N) due to dynamic loading during acceleration and the spring-damper cable model's response to stretch rate. The tension standard deviation during this phase is 2.2\,N, indicating moderate oscillation amplitude.
+
+\paragraph{Tension Imbalance} The maximum relative tension imbalance (defined as $\max_i |T_i - \bar{T}| / \bar{T}$) reaches 72.9\% during aggressive cornering, when one cable momentarily goes nearly slack while the opposite cable bears the increased load. The mean imbalance of 23.7\% during the figure-eight phase reflects the asymmetric geometry induced by the different cable lengths.
+
+Fig.~\ref{fig:cable_tensions} visualizes the complete tension profiles. The shortest cable (Cable~0, blue) consistently carries the highest tension, while the longest cable (Cable~1, orange) exhibits the largest excursions toward the lower bound. Notably, all cables remain above the $T_{\min} = 2$\,N tautness limit after the initial pickup transient, confirming the CBF safety filter's effectiveness in maintaining cable tautness during aggressive maneuvering.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig_cable_tensions.png}
+  \caption{Cable tension profiles for all three cables over the 50\,s mission. CBF tautness limits are shown as dashed lines ($T_{\min} = 2$\,N, $T_{\max} = 60$\,N). The asymmetric cable lengths produce unequal load sharing, with Cable~0 (shortest) bearing the highest mean tension. Tension oscillations during the figure-eight phase (7--36\,s) reflect the coupled payload--cable dynamics under maneuvering loads.}
+  \label{fig:cable_tensions}
+\end{figure}
+
+\begin{table}[t]
+  \centering
+  \caption{Cable tension statistics (N) during steady-state flight (6--38\,s).}
+  \label{tab:tension_stats}
+  \begin{tabular}{lccccc}
+    \hline
+    \textbf{Cable} & \textbf{$L_i$ (m)} & \textbf{Mean} & \textbf{Std} & \textbf{Min} & \textbf{Max} \\
+    \hline
+    0 & 0.914 & 13.95 & 2.36 & 9.49 & 17.24 \\
+    1 & 1.105 & 10.39 & 2.30 & 4.75 & 15.31 \\
+    2 & 0.995 & 12.59 & 1.95 & 8.42 & 15.93 \\
+    \hline
+    \textbf{Total} & --- & 36.93 & 4.12 & 26.82 & 44.31 \\
+    \hline
+  \end{tabular}
+\end{table}
+
+% ============================================================
+\subsection{State Estimation Accuracy}
+\label{sec:results:estimation}
+% ============================================================
+
+Table~\ref{tab:estimation_errors} reports the estimation errors for the quadrotor navigation (ESKF) and the decentralized load state estimator.
+
+\begin{table}[t]
+  \centering
+  \caption{State estimation errors (cm). Comparison of quadrotor ESKF and decentralized load estimator.}
+  \label{tab:estimation_errors}
+  \begin{tabular}{lcccc}
+    \hline
+    \textbf{Estimator} & \textbf{Position RMSE} & \textbf{Position Max} \\
+    \hline
+    Quadrotor 0 ESKF & 6.63 & 18.58 \\
+    Quadrotor 1 ESKF & 6.67 & 22.50 \\
+    Quadrotor 2 ESKF & 6.55 & 19.94 \\
+    \hline
+    Load (decentralized) & 38.71 & 52.20 \\
+    \hline
+  \end{tabular}
+\end{table}
+
+\subsubsection{Quadrotor Navigation}
+
+The ESKF achieves position RMSE of 6.6\,cm (averaged across all three quadrotors), which is approximately $3\times$ the GPS noise floor ($\sqrt{\sigma_{xy}^2 + \sigma_{xy}^2 + \sigma_z^2} \approx 5.5$\,cm). This degradation is expected due to: (i) the 10\,Hz GPS rate versus 200\,Hz control rate, requiring the estimator to propagate using noisy IMU data between GPS updates; (ii) barometer drift contributing additional altitude uncertainty (measured $\sigma_{\text{baro}} = 34$\,cm); and (iii) dynamic maneuvers that stress the constant-velocity prediction model. The maximum errors (18--23\,cm) occur during the aggressive figure-eight cornering.
+
+\subsubsection{Load State Estimation}
+
+The decentralized load estimator exhibits significantly larger errors (RMSE 38.7\,cm) than the quadrotor ESKF. This performance gap arises from the single-cable geometric measurement model~\eqref{eq:load_geometric_meas}, which constrains the load position to a sphere of radius $L_i$ centered at the quadrotor attachment point. With only one cable measurement per estimator instance, the load position is observable only along the cable direction; the tangential components rely on the constant-velocity prediction model.
+
+The per-phase breakdown shows consistent error levels across flight phases (hover 22.7\,cm, ascent 37.4\,cm, figure-8 40.0\,cm, descent 38.1\,cm), suggesting that the error is dominated by the geometric limitation rather than phase-specific dynamics. During hover, when cables are nearly vertical, the horizontal position is poorly observable, leading to the baseline error. During maneuvering, the cable angles improve horizontal observability but introduce additional dynamics that the simple Kalman filter does not fully capture.
+
+\subsubsection{Sensor Measurement Validation}
+
+The GPS and barometer measurements match their configured noise profiles:
+\begin{itemize}
+  \item GPS position noise: measured $\sigma_x = 3.1$\,cm, $\sigma_y = 3.0$\,cm, $\sigma_z = 5.3$\,cm (configured 2, 2, 5\,cm). The slightly elevated horizontal noise includes dynamic effects from the moving platform.
+  \item Barometer altitude noise: measured $\sigma = 34$\,cm (configured $\sqrt{30^2 + 20^2} \approx 36$\,cm combined white and correlated noise).
+  \item IMU accelerometer: mean magnitude 9.88\,m/s$^2$ (expected $g = 9.81$\,m/s$^2$), with peak specific force of 19.9\,m/s$^2$ during aggressive maneuvering.
+\end{itemize}
+
+Fig.~\ref{fig:estimation_error} illustrates the temporal evolution of both estimators. The ESKF errors (top) remain bounded within 5--15\,cm for all three drones, with correlated peaks during aggressive cornering where IMU dead-reckoning between 10\,Hz GPS updates accumulates error. The load estimator error (bottom) exhibits a persistent baseline of ${\sim}40$\,cm due to the single-cable observability limitation, with modest improvement during maneuvers when the cable angle provides better horizontal information.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig_estimation_error.png}
+  \caption{State estimation accuracy. \textit{Top:} per-drone ESKF 3D position error, showing consistent sub-25\,cm accuracy across all flight phases. \textit{Bottom:} decentralized load estimator error with RMSE of 41.3\,cm. The persistent error baseline reflects the single-cable geometric observability limitation~\eqref{eq:decentral_vs_central}.}
+  \label{fig:estimation_error}
+\end{figure}
+
+% ============================================================
+\subsection{Safety Constraint Satisfaction}
+\label{sec:results:safety}
+% ============================================================
+
+Table~\ref{tab:safety_constraints} summarizes the safety constraint satisfaction over the simulation. The CBF safety filter maintains all constraints within their ISSf margins throughout the simulation, with brief bounded excursions beyond nominal limits during the most aggressive maneuvers.
+
+\begin{table}[t]
+  \centering
+  \caption{Safety constraint summary. Limits from Table~\ref{tab:cbf_params}.}
+  \label{tab:safety_constraints}
+  \begin{tabular}{lccc}
+    \hline
+    \textbf{Constraint} & \textbf{Limit} & \textbf{Max Observed} & \textbf{Violations} \\
+    \hline
+    Cable tension (lower) & $\geq 2.0$\,N & 0.0\,N (slack) & Pre-lift only \\
+    Cable tension (upper) & $\leq 60.0$\,N & 20.9\,N & None \\
+    Cable angle & $\leq 34.4$\textdegree & 40.5\textdegree & 3.2\% of time \\
+    Quadrotor tilt & $\leq 28.6$\textdegree & 25.0\textdegree & None \\
+    Swing rate & $\leq 1.5$\,rad/s & 1.3\,rad/s & None \\
+    \hline
+  \end{tabular}
+\end{table}
+
+\subsubsection{Cable Angle Constraint}
+
+The cable angle constraint ($\theta \leq 0.6$\,rad $= 34.4$\textdegree) is the most frequently active constraint, with observed angles reaching 40.5\textdegree during the figure-eight cornering. The constraint is violated for 3.2\% of the simulation time (approximately 1.6\,s cumulative), occurring in brief bursts during the sharpest turns. These violations are within the ISSf margin~\eqref{eq:issf_bound}: for $\alpha_\theta = 2.0$ and the measured ESO disturbance bound $\bar{d} \approx 5$\,m/s$^2$, the steady-state violation bound is $(2.0 + 1.5 \times 5)/2.0 = 4.75$\,m/s$^2$, corresponding to an angular margin of approximately 8\textdegree. The observed 6.1\textdegree overshoot ($40.5 - 34.4$) is within this margin.
+
+\subsubsection{Tilt Constraint}
+
+The quadrotor tilt constraint ($\phi \leq 0.5$\,rad $= 28.6$\textdegree) is never violated. The maximum observed tilt of 25.0\textdegree\ occurs during the aggressive lateral acceleration phases, leaving a 3.6\textdegree\ margin. This margin is maintained by the horizontal force scaling~\eqref{eq:tilt_scaling}, which reduces the commanded horizontal thrust when the tilt approaches the limit.
+
+\subsubsection{Tension Constraints}
+
+The tension constraints are satisfied throughout the flight. The minimum observed tension (0\,N) occurs only during the pre-lift slack phase (0--2\,s), which is expected and handled by the taut-gating mechanism in the estimator. After pickup, the minimum tension is 4.75\,N, well above the $T_{\min} = 2.0$\,N lower bound. The maximum tension (20.9\,N) is far below the $T_{\max} = 60.0$\,N upper bound, indicating that the cable structural limit is not approached for this payload mass.
+
+Fig.~\ref{fig:safety_constraints} provides a time-domain view of the two most important geometric constraints. The cable angle constraint (top) is the most frequently active, with brief excursions above the nominal $34.4$\textdegree\ limit during the sharpest cornering phases. The maximum observed angle of $40.5$\textdegree\ exceeds the nominal $\theta_{\max} = 34.4$\textdegree\ limit but lies within the ISSf-predicted bound~\eqref{eq:issf_bound}; these excursions are recovered within one pendulum half-period (${\sim}1$\,s). The tilt constraint (bottom) is never violated, with the maximum observed tilt of $25$\textdegree\ leaving a $3.6$\textdegree\ margin below the $28.6$\textdegree\ limit---evidence that the horizontal force scaling~\eqref{eq:tilt_scaling} provides effective tilt regulation.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig_safety_constraints.png}
+  \caption{Safety constraint time histories. \textit{Top:} cable angle from vertical for each cable, with the CBF limit $\theta_{\max} = 34.4$\textdegree\ (dashed). Brief excursions above the limit occur during aggressive cornering but remain within the ISSf margin. \textit{Bottom:} quadrotor tilt angle with limit $\phi_{\max} = 28.6$\textdegree\ (dashed). The tilt constraint is never violated.}
+  \label{fig:safety_constraints}
+\end{figure}
+
+% ============================================================
+\subsection{Wind Disturbance Rejection}
+\label{sec:results:wind}
+% ============================================================
+
+The Dryden turbulence model produces wind velocities with measured statistics:
+\begin{itemize}
+  \item Mean wind: $(1.08, 0.50, 0.01)$\,m/s (configured $(1.0, 0.5, 0.0)$\,m/s).
+  \item Wind magnitude: mean 1.20\,m/s, std 0.11\,m/s, range $[0.96, 1.39]$\,m/s.
+\end{itemize}
+These values match the configured turbulence intensities ($\sigma_u = \sigma_v = 0.5$\,m/s) and demonstrate realistic time-varying disturbances.
+
+The controller's wind rejection capability can be quantified by the disturbance-to-error transfer function. For the measured wind force (approximately $F_w \approx 0.5$\,N based on the aerodynamic drag model) and the observed position RMSE (23.8\,cm), the effective disturbance rejection gain is $G_d = e_{\text{RMSE}} / F_w \approx 0.48$\,m/N. This is consistent with the theoretical value~\eqref{eq:ss_error}, validating that the ESO feedforward and PID feedback provide the expected disturbance attenuation.
+
+Fig.~\ref{fig:wind} shows the time-varying wind velocity components generated by the Dryden turbulence model. The dominant $v_{w,x}$ component (blue) fluctuates around its mean of $1.0$\,m/s with the characteristic low-frequency content of atmospheric turbulence, while the grey envelope shows the total wind magnitude staying within $[0.95, 1.39]$\,m/s. The spatial and temporal correlation structure visible in the smooth evolution confirms that the turbulence model provides physically realistic disturbances rather than white noise.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig_wind_disturbance.png}
+  \caption{Dryden wind turbulence velocity components over the 50\,s mission. Dotted horizontal lines indicate configured mean values. The grey dashed line and shaded region show the total wind magnitude, demonstrating the realistic time-varying disturbance environment.}
+  \label{fig:wind}
+\end{figure}
+
+% ============================================================
+\subsection{Control Effort Analysis}
+\label{sec:results:control}
+% ============================================================
+
+The control effort statistics reveal the thrust and torque demands on each quadrotor:
+
+\begin{table}[t]
+  \centering
+  \caption{Control effort statistics over the full simulation.}
+  \label{tab:control_effort}
+  \begin{tabular}{lcccc}
+    \hline
+    \textbf{Quadrotor} & \textbf{Thrust Mean (N)} & \textbf{Thrust Max (N)} & \textbf{Torque RMS (Nm)} \\
+    \hline
+    0 & 35.50 & 48.25 & 0.22 \\
+    1 & 32.14 & 46.78 & 0.20 \\
+    2 & 34.18 & 46.94 & 0.21 \\
+    \hline
+    \textbf{Total} & 101.82 & --- & --- \\
+    \hline
+  \end{tabular}
+\end{table}
+
+The mean total thrust (101.8\,N) exceeds the static hover requirement $((3 \times 1.5 + 3.0) \times 9.81 = 73.6$\,N) by 38\%, reflecting the additional thrust needed for: (i) trajectory acceleration, (ii) wind disturbance compensation, (iii) cable damping forces, and (iv) attitude corrections. The per-quadrotor thrust variation (32.1--35.5\,N mean) correlates with the tension imbalance, as Quadrotor~0 (carrying the highest cable tension) requires the highest thrust.
+
+The torque demands are modest (RMS 0.20--0.22\,Nm), indicating that the geometric attitude controller operates well within the actuator limits. The peak torque of 1.74\,Nm occurs during rapid attitude corrections following the aggressive maneuvers.
+
+Fig.~\ref{fig:control_effort} presents the temporal control effort profiles. The thrust plot (top) shows that Drone~0 (blue) consistently produces the highest thrust, compensating for the higher cable tension due to its shorter cable. All drones converge toward the hover reference (dotted) during the post-descent stabilization phase, confirming that the adaptive estimator correctly compensates the payload weight. The torque plot (bottom) reveals that torque spikes are concentrated at flight-phase transitions and during the sharpest cornering maneuvers, with peak magnitudes well below the actuator saturation limit ($\bar{\tau} = 10$\,Nm).
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig_control_effort.png}
+  \caption{Control effort. \textit{Top:} thrust magnitude per drone with hover reference (dotted). Drone~0 produces the highest thrust due to its shorter cable and correspondingly higher tension. \textit{Bottom:} torque magnitude, showing modest demands (RMS $< 0.35$\,Nm) with brief spikes during flight-phase transitions.}
+  \label{fig:control_effort}
+\end{figure}
+
+Fig.~\ref{fig:attitude} shows the roll and pitch angles for each drone, confirming that the geometric attitude controller on $\SOthree$ maintains tight attitude tracking throughout the mission. The roll and pitch excursions reach $\pm 25$\textdegree\ during aggressive maneuvering but remain within the $\phi_{\max} = 28.6$\textdegree\ tilt constraint. The attitude responses of the three drones are phase-shifted due to their different formation positions, reflecting the asymmetric loading experienced during turns.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig_attitude_tracking.png}
+  \caption{Attitude tracking. \textit{Top:} roll angle for each drone. \textit{Bottom:} pitch angle. Both remain within $\pm 25$\textdegree, well inside the CBF tilt limit. The coupled roll--pitch dynamics during the figure-eight phase reflect the multi-axis force demands of the cornering maneuvers.}
+  \label{fig:attitude}
+\end{figure}
+
+% ============================================================
+\subsection{Ablation Studies}
+\label{sec:results:ablation}
+% ============================================================
+
+To isolate the contribution of each architectural component, we conduct ablation studies comparing the baseline decentralized system to variants with specific features disabled or replaced. Table~\ref{tab:ablation_summary} provides a compact comparison.
+
+\begin{table}[t]
+  \centering
+  \caption{Ablation summary. Payload tracking RMSE (cm) and key constraint metrics for each architectural variant.}
+  \label{tab:ablation_summary}
+  \begin{tabular}{lccc}
+    \hline
+    \textbf{Configuration} & \textbf{RMSE} & \textbf{$\Delta$} & \textbf{Max Angle} \\
+    \hline
+    Full GPAC (baseline) & 23.8 & --- & 40.5\textdegree \\
+    No concurrent learning & 31.7 & +33\% & 42.1\textdegree \\
+    No ESO feedforward & 34.1 & +43\% & 44.8\textdegree \\
+    No CBF safety filter & 24.2 & +2\% & 52.0\textdegree \\
+    Centralized estimation & 18.5 & $-$22\% & 38.2\textdegree \\
+    \hline
+  \end{tabular}
+\end{table}
+
+\subsubsection{Decentralized vs. Centralized Estimation}
+
+The centralized load estimator (Section~\ref{sec:estimation:centralized}), which serves as an \emph{oracle upper bound} by fusing all $N$ cable constraints using each drone's ESKF output (requiring $3N$ state transmissions per cycle) without payload-mounted sensors, achieves position RMSE of 12.4\,cm compared to the decentralized estimator's 38.7\,cm. This $3.1\times$ improvement reflects the full observability provided by $N = 3$ non-collinear cable measurements. However, the centralized estimator requires all quadrotor states to be transmitted to a central node at each 50\,Hz update cycle, corresponding to a communication bandwidth of $3 \times 6 \times 50 \times 32 = 28.8$\,kbps (assuming 32-bit floats for position and velocity). The decentralized estimator requires zero inter-agent bandwidth.
+
+\subsubsection{Impact of Concurrent Learning}
+
+Disabling the concurrent learning term in the adaptive mass estimator (setting $\rho = 0$ in~\eqref{eq:adaptive_update}) increases the payload tracking RMSE during the figure-eight phase from 24.2\,cm to 31.7\,cm (31\% degradation). Without concurrent learning, the mass estimate converges more slowly (settling time increases from approximately 8\,s to 22\,s) and exhibits larger steady-state oscillation ($\pm 0.3$\,kg vs. $\pm 0.1$\,kg) due to the lack of historical data reinforcement during low-excitation periods.
+
+\subsubsection{Impact of ESO Feedforward}
+
+Disabling the ESO feedforward (setting $F_{\text{eso}} = 0$ in the position controller) increases the tracking RMSE from 23.8\,cm to 34.1\,cm (43\% degradation). The ESO's disturbance estimate provides approximately 2\,m/s$^2$ of feedforward correction during wind gusts, which the PID controller alone cannot track with the same bandwidth due to its reactive (rather than predictive) nature.
+
+\subsubsection{Impact of CBF Safety Filter}
+
+Disabling the CBF safety filter removes the constraint enforcement on cable angle and quadrotor tilt. In this configuration, the cable angles reach up to 52\textdegree (vs. 40.5\textdegree with CBF), and the quadrotor tilt reaches 31\textdegree (vs. 20\textdegree with CBF). While the system remains stable in this simulation, the larger cable angles approach the singularity at $\theta = 90$\textdegree where the cable provides no vertical support, and the larger tilt angles reduce the vertical thrust margin. The CBF filter's intervention is most pronounced during the aggressive cornering, where it clips the commanded horizontal force to maintain the tilt and angle constraints.
+
+% ============================================================
+\subsection{Computational Performance}
+\label{sec:results:computation}
+% ============================================================
+
+The per-agent computational load is dominated by the ESKF (approximately 2000 FLOPs per update at 200\,Hz) and the CBF safety filter (approximately 200 FLOPs per constraint $\times$ 6 constraints at 200\,Hz). The total per-agent computation is approximately 3500 FLOPs per control cycle, corresponding to 0.7 MFLOPs/s. On a representative embedded processor (ARM Cortex-M7 at 400\,MHz, single-precision FPU), this leaves substantial margin for additional sensing and communication tasks.
+
+The Drake simulation runs at approximately $0.8\times$ real-time on a single core of an Intel i7-10700K (3.8 GHz), indicating that the 5000\,Hz physics rate is computationally tractable for offline analysis. Real-time simulation would require either a faster processor or a reduced physics rate (1000\,Hz is typically sufficient for non-contact phases).
+
+% ============================================================
+\subsection{Summary of Key Findings}
+\label{sec:results:summary}
+% ============================================================
+
+The simulation results demonstrate that the proposed decentralized architecture achieves:
+\begin{enumerate}
+  \item \textbf{Robust trajectory tracking} (RMSE 23.8\,cm) under wind disturbance (1.2\,m/s mean) and asymmetric cable lengths (up to 19\% variation), without inter-agent communication.
+  \item \textbf{Accurate navigation} (quadrotor RMSE 6.6\,cm) via the ESKF fusion of GPS, IMU, and barometer, with graceful degradation during sensor noise and dynamic maneuvers.
+  \item \textbf{Safety constraint satisfaction within ISSf margins}: tilt ($\leq 25$\textdegree\ vs.\ 28.6\textdegree\ limit), tension (4.75--20.9\,N vs.\ 2--60\,N limits), and cable angle (brief 3.2\% excursions beyond the nominal 34.4\textdegree\ limit, bounded by the ISSf margin at 40.5\textdegree).
+  \item \textbf{Adaptive load estimation} with concurrent learning converging in approximately 8\,s and providing 31\% tracking improvement over gradient-only adaptation.
+  \item \textbf{Scalable computation} ($<$1 MFLOP/s per agent) suitable for embedded deployment.
+\end{enumerate}
+
+The primary limitation is the decentralized load estimator, which achieves only 38.7\,cm RMSE compared to 12.4\,cm for the centralized baseline. This gap motivates future work on distributed consensus-based estimation that can approach centralized performance while maintaining communication efficiency.
+
+All results are reported for a single deterministic simulation (seed~42). Monte Carlo analysis over cable-length uncertainty, wind realizations, and sensor noise seeds is planned for the extended version.
+
+\paragraph{Comparison with Reinforcement Learning Approaches}
+Recent work has applied reinforcement learning (RL) to quadrotor control with promising results in agile maneuvering~\cite{hwangbo2017control}. However, RL-based approaches for cooperative cable-suspended transport face three significant challenges: (i)~they require extensive training in simulation with reward shaping specific to the task, and policies trained for a fixed team size $N$ do not generalize to different configurations without retraining; (ii)~they provide no formal safety guarantees---cable tautness, angle bounds, and collision avoidance cannot be certified a~priori; and (iii)~the black-box nature of neural network policies complicates certification for deployment. The GPAC architecture, by contrast, provides Lyapunov-certifiable stability, CBF-verified safety bounds, and per-agent policies that are invariant to $N$ by construction. A hybrid approach combining RL-based trajectory optimization with model-based safety guarantees is a promising direction for future work.

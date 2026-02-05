@@ -1,0 +1,160 @@
+\documentclass[letterpaper, 10 pt, conference]{./ieeeconf} 
+
+
+\let\labelindent\relax
+\IEEEoverridecommandlockouts 
+\overrideIEEEmargins 
+\usepackage{pifont}
+\usepackage{mathtools}
+\usepackage{caption} 
+\usepackage{cite}
+\usepackage{times}
+\usepackage[pdftex]{graphicx}
+\graphicspath{{./Figures/}}
+\usepackage{subfiles}
+
+\DeclareGraphicsExtensions{.pdf,.jpeg,.png,.jpg}
+\usepackage{subcaption}
+\usepackage{epstopdf}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{mathrsfs}
+% \usepackage{amsthm}
+\newtheorem{assumption}{Assumption}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{tikz}
+\usetikzlibrary{positioning, arrows.meta, calc, fit}
+\usepackage{array}
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+\usepackage{enumitem}
+\usepackage{siunitx}
+\usepackage{ragged2e}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+% subfiles already loaded above
+\usepackage{titlesec}
+\usepackage{hyperref}
+\titlespacing{\section}{0pt}{3pt}{2pt}
+\titlespacing{\subsection}{0pt}{0pt}{0pt}
+
+% ---------- column helpers ----------
+\newcolumntype{C}[1]{>{\centering\arraybackslash}m{#1}}
+\newcolumntype{L}[1]{>{\RaggedRight\arraybackslash}m{#1}}
+% ------------------------------------
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Sph}{\mathbb{S}}
+\newcommand{\SOthree}{\mathrm{SO}(3)}
+\newcommand{\SEthree}{\mathrm{SE}(3)}
+\newcommand{\sothree}{\mathfrak{so}(3)}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\abs}[1]{\left| #1 \right|}
+\newcommand{\hatmap}[1]{\widehat{#1}}
+\DeclareMathOperator{\tr}{tr}
+\DeclareMathOperator{\diag}{diag}
+
+% Math operators
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+
+\newcommand{\Rnonneg}{\mathbb{R}_{\ge 0}}
+\newcommand{\Prob}{P}
+\newcommand{\ind}{\mathbb{I}} 
+
+
+\newcounter{example}
+\newcommand{\example}[1]{%
+ \stepcounter{example}%
+ \par\vspace{12pt}%
+ \textbf{Example \theexample: #1}%
+ \par\vspace{6pt}%
+ \setcounter{subsection}{0}
+}
+
+\sisetup{
+  round-mode          = places,
+  round-precision     = 2,
+}
+
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{proposition}{Proposition}
+
+\newtheorem{remark}[theorem]{Remark}
+
+\setlength{\textfloatsep}{5pt plus 2pt minus 4pt} % Adjust space between float and text
+\setlength{\belowcaptionskip}{-5pt} % Reduce space after the caption
+
+
+\hyphenation{op-tical net-works semi-conduc-tor}
+
+\setlength{\abovedisplayskip}{5pt}
+\setlength{\belowdisplayskip}{5pt}
+
+\begin{document}
+\title{Cooperative Transport via Flexible Cable Suspensions:\\ A Hierarchical Architecture with Adaptive Estimation and Safety Guarantees}
+
+\author{Hadi Hajieghrary$^{1}$, Benedikt Walter$^{2}$, Miguel Hurtado$^{3}$, and Paul Schmitt$^{4}$% <-this % stops a space
+\thanks{$^{1}$Hadi Hajieghrary \{{\tt\small Hadi.Hajieghrary@gatech.edu}\}, ...}%
+ }
+
+
+\maketitle
+
+\begin{abstract}
+We present the Geometric Position and Attitude Control (GPAC) architecture for decentralized cooperative aerial transport via flexible cable suspensions. Each of $N$~quadrotors operates with zero knowledge of the team size~$N$, payload mass~$m_L$, or any other agent's state, yet the closed-loop system maintains geometric control on the full $\mathrm{SE}(3) \times (\mathbb{S}^2)^N$ configuration manifold with Lyapunov-certifiable stability guarantees. A concurrent learning adaptive law enables each drone to independently estimate its payload share $\hat{\theta}_i \to m_L/N$ without persistent excitation, and a modular Control Barrier Function safety filter enforces cable tautness, swing angle, tilt, and collision constraints with input-to-state safety (ISSf) guarantees---bounding constraint violations under disturbances---provably compatible with the geometric attitude controller. The framework is validated in a high-fidelity Drake-based simulation incorporating flexible bead-chain cable dynamics, onboard sensor models (IMU, GPS, barometer) with Error-State Kalman Filter fusion, and Dryden wind turbulence. The decentralized architecture achieves 23.8\,cm payload tracking RMSE, maintains safety constraints within ISSf margins, and requires less than 1\,MFLOP/s per agent, demonstrating feasibility for embedded deployment.
+\end{abstract}
+
+\section{Introduction}
+\label{Sec:Introduction}
+\subfile{./Sections/Section_I_Introduction}
+
+\section{System Modeling}
+\label{Sec:System_Modeling}
+\label{sec:modeling}
+\subfile{./Sections/Section_II_System_Modeling}
+
+\section{GPAC Control Architecture}
+\label{Sec:GPAC_Control_Architecture}
+\label{sec:control}
+\subfile{./Sections/Section_III_GPAC_Control_Architecture}
+
+\section{Decentralized Adaptive Estimation}
+\label{Sec:Decentralized_Adaptive_Estimation}
+\label{sec:estimation}
+\subfile{./Sections/Section_IV_Decentralized_Adaptive_Estimation}
+
+\section{CBF Safety Filter}
+\label{Sec:CBF_Safety_Filter}
+\label{sec:safety}
+\subfile{./Sections/Section_V_CBF_Safety_Filter}
+
+\section{Simulation Environment}
+\label{Sec:Simulation_Environment}
+\label{sec:simulation}
+\subfile{./Sections/Section_VI_Simulation_Environment}
+
+\section{Results}
+\label{Sec:Results}
+\label{sec:results}
+\subfile{./Sections/Section_VII_Results}
+
+\section{Conclusion}
+\label{Sec:Conclusion}
+\label{sec:conclusion}
+\subfile{./Sections/Section_VIII_Conclusion}
+
+\bibliographystyle{IEEEtran}
+\bibliography{./References/References.bib}
+
+
+
+\end{document}

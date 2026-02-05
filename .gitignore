@@ -420,3 +420,24 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+# LaTeX compilation artifacts
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+*.lof
+*.lot
+*.nav
+*.snm
+*.vrb
+*.bcf
+*.run.xml
+*.idx
+*.ilg
+*.ind
+*.dvi

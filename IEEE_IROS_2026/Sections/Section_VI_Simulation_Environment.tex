@@ -1,0 +1,206 @@
+
+This section describes the Drake-based simulation framework, the multi-body construction pipeline, the timing and rate architecture, the trajectory generation module, and the data logging infrastructure. All code and configuration files required to reproduce the results in Section~\ref{sec:results} are available at the repository listed in the supplementary material.
+
+% ============================================================
+\subsection{Drake Multibody Simulation}
+\label{sec:simulation:drake}
+% ============================================================
+
+The simulation is built on the Drake toolbox~\cite{drake2024}, a C++ multibody dynamics engine widely used in robotics and control research. Drake provides a \emph{systems framework} in which every component---physics plant, sensor, controller, estimator---is realized as a Drake \texttt{LeafSystem} with typed input and output ports. These are connected in a \texttt{DiagramBuilder} and compiled into a single \texttt{Diagram}. Drake advances the continuous-time dynamics using an implicit integrator with error-controlled stepping, while discrete-time subsystems (sensors, estimators) are updated via periodic events at their specified rates (Table~\ref{tab:timing}).
+
+\subsubsection{Physics Engine Configuration}
+
+The core simulation engine is a \texttt{MultibodyPlant} configured with the following settings:
+\begin{itemize}
+  \item \emph{Time step}: $\Delta t_{\text{sim}} = 2 \times 10^{-4}$\,s (5000\,Hz). This time step resolves the fastest cable vibration dynamics (fundamental frequency $\sim$$55$\,Hz for the bead-chain model) with a factor-of-$90$ oversampling, and is small enough for the semi-implicit Euler integrator used by Drake's discrete-time plant to remain stable under the stiff spring-damper cable forces.
+  \item \emph{Contact model}: Point contact with Coulomb friction ($\mu_s = 0.5$, $\mu_k = 0.3$). Contact forces are resolved between the payload sphere and the ground half-space during the pre-lift and post-landing phases.
+  \item \emph{Actuation}: External spatial forces applied directly to the quadrotor rigid bodies (thrust and torque in the body frame), bypassing rotor dynamics. This abstraction is consistent with the control-affine model~\eqref{eq:abstracted_dynamics}.
+\end{itemize}
+
+\subsubsection{Multi-Body Construction}
+
+The simulation constructs the following rigid bodies (summarized in Table~\ref{tab:sim_params}):
+
+\paragraph{Quadcopters} $N = 3$ free-floating rigid bodies, each with mass $m_Q = 1.5$\,kg and box inertia ($0.30 \times 0.30 \times 0.10$\,m). The quadrotor visual mesh is loaded from Drake's built-in URDF model and welded to each body for rendering. The quadcopters are initialized in a circular formation with radius $r_f = 0.5$\,m at altitude $z_0 = 1.2$\,m, centered above the payload:
+\begin{equation}
+  p_{i}(0) = \bigl[r_f \cos(2\pi i / N),\;\, r_f \sin(2\pi i / N),\;\, z_0\bigr]^\top\!, \quad i = 0, \ldots, N\!-\!1.
+  \label{eq:formation_init}
+\end{equation}
+
+\paragraph{Payload} A solid sphere with mass $m_L = 3.0$\,kg and radius $r_L = 0.15$\,m. It is initialized resting on the ground plane at $p_L(0) = [0,\; 0,\; r_L + \epsilon]^\top$ with $\epsilon = 0.01$\,m clearance. Collision geometry is registered for ground contact resolution during pickup and landing.
+
+\paragraph{Bead-Chain Cables} Each cable connecting quadrotor $i$ to the payload consists of $M = 8$ spherical beads and $M + 1 = 9$ tension-only spring-damper segments, as described in Section~\ref{sec:modeling:rope}. The beads are free-floating rigid bodies with mass $m_b = m_{\text{rope}} / M$ where $m_{\text{rope}} = 0.2$\,kg per cable. Collision geometry is registered on each bead for potential ground interaction.
+
+\paragraph{Cable Rest Lengths} To model manufacturing and measurement uncertainty, each cable's rest length is sampled from a Gaussian distribution~\eqref{eq:rope_length_gaussian} with means $\bar{L} = [1.0,\; 1.1,\; 0.95]$\,m and standard deviations $\sigma_L = [0.05,\; 0.08,\; 0.06]$\,m, clipped to $L_i \geq 0.1$\,m. The random seed is fixed ($s = 42$) for reproducibility. This asymmetry tests the adaptive estimator's ability to handle non-identical cable configurations.
+
+\paragraph{Spring-Damper Parameters} The segment stiffness is computed using~\eqref{eq:stiffness_design} to achieve a target maximum stretch of $15\%$ under the expected per-cable load, with $N_s = M + 1 = 9$ segments, average sampled rest length $\bar{L}$, and $\epsilon_{\max} = 0.15$. The segment damping is scaled as $c_{\text{seg}} = c_{\text{ref}} \sqrt{k_{\text{seg}} / k_{\text{ref}}}$ with reference values $c_{\text{ref}} = 15$\,Ns/m and $k_{\text{ref}} = 300$\,N/m. This scaling preserves the damping ratio across different stiffness values.
+
+\paragraph{Rope Initialization} Beads are initialized in a slack catenary configuration between the quadrotor attachment point and the payload attachment point. The function \texttt{GenerateSlackRopePositions} distributes beads along a parabolic arc with slack ratio $0.85$ (i.e., the straight-line distance is $85\%$ of the rest length) and lateral amplitude up to $1.0$\,m perpendicular to the line connecting endpoints. This avoids the numerical instabilities that would arise from initializing the cable in a perfectly taut or compressed state.
+
+% ============================================================
+\subsection{System Timing Architecture}
+\label{sec:simulation:timing}
+% ============================================================
+
+The simulation operates with multiple rates, summarized in Table~\ref{tab:timing}. All discrete-time systems use Drake's periodic event mechanism, which synchronizes updates exactly at the specified period boundaries.
+
+\begin{table}[t]
+  \centering
+  \caption{System timing hierarchy. All rates are exact (driven by Drake's event system, not wall-clock time).}
+  \label{tab:timing}
+  \begin{tabular}{lrr}
+    \hline
+    \textbf{System} & \textbf{Rate (Hz)} & \textbf{Period (ms)} \\
+    \hline
+    Physics plant & 5000 & 0.2 \\
+    IMU sensor & 200 & 5.0 \\
+    ESKF propagation & 200 & 5.0 \\
+    Barometer sensor & 25 & 40 \\
+    Position controller & 200 & 5.0 \\
+    Attitude controller & 200 & 5.0 \\
+    CBF safety filter & 200 & 5.0 \\
+    Butterworth filter & 200 & 5.0 \\
+    Decentralized load KF & 50 & 20 \\
+    Adaptive mass estimator & 50 & 20 \\
+    ESO & \multicolumn{2}{l}{continuous ($\omega_o = 50$\,rad/s)} \\
+    GPS sensor & 10 & 100 \\
+    Data logger & 100 & 10 \\
+    Meshcat visualizer & 60 & 16.7 \\
+    \hline
+  \end{tabular}
+\end{table}
+
+\paragraph{Zero-Order Hold Interfaces} When a fast system consumes the output of a slow system (e.g., the 200\,Hz position controller reading the 10\,Hz GPS-derived estimate), the port connection naturally holds the last computed value until the next update. Drake's continuous-time output ports provide sample-and-hold semantics for discrete-state systems. When explicit rate separation is needed (e.g., for the tension signal between the physics plant and the controller), a \texttt{ZeroOrderHold} block is inserted with the appropriate period.
+
+\paragraph{Scalability} The GPAC architecture is designed so that per-agent computation is \emph{independent of team size} $N$. Each drone runs its own ESKF, load estimator, adaptive mass estimator, GPAC controller, and CBF safety filter using only local cable and sensor data ($\sim$0.7\,MFLOP/s total, cf.\ Section~\ref{sec:results:computation}). The only $N$-dependent cost is collision avoidance, which requires pairwise distance checks at $\mathcal{O}(N)$ per agent (or $\mathcal{O}(N^2)$ system-wide). For teams with $N > 10$, spatial partitioning (e.g., grid-based or k-d tree neighbor queries) could reduce the collision check to $\mathcal{O}(1)$ expected cost per agent. This computation profile fits within the capabilities of an ARM Cortex-M7 class processor (400\,MHz, single-precision FPU), leaving margin for communication and additional sensing tasks.
+
+% ============================================================
+\subsection{Sensor Implementation}
+\label{sec:simulation:sensors}
+% ============================================================
+
+Each sensor is implemented as a Drake \texttt{LeafSystem} that reads the ground-truth plant state and produces corrupted measurements at its specified sample rate. The sensor models were detailed in Section~\ref{sec:modeling:sensors}; here we describe the implementation specifics.
+
+\subsubsection{GPS Sensor}
+
+The GPS sensor (\texttt{GpsSensor}) extracts the body-frame position from the plant state, adds zero-mean Gaussian noise $(\sigma_{xy} = 0.02$\,m, $\sigma_z = 0.05$\,m), and applies a configurable dropout probability ($p_{\text{drop}} = 0.0$ in the baseline experiments). A validity flag is output alongside the position, which the ESKF uses to skip the GPS update step during outages. Each quadrotor and the payload have independent GPS sensors with distinct random seeds to ensure uncorrelated noise realizations. The payload GPS sensor (10\,Hz, $\sigma = 5$\,cm) is included solely for ground-truth evaluation and the centralized estimator upper bound; it is \emph{not} available to any decentralized agent.
+
+\subsubsection{IMU Sensor}
+
+The IMU sensor (\texttt{ImuSensor}) extracts body-frame angular velocity and specific force (acceleration minus gravity, expressed in the body frame) from the plant state. The noise model applies white noise density $\sigma_g = 5 \times 10^{-4}$\,rad/s/$\sqrt{\text{Hz}}$ for the gyroscope and $\sigma_a = 4 \times 10^{-3}$\,m/s$^2$/$\sqrt{\text{Hz}}$ for the accelerometer, yielding discrete noise standard deviations of $\sigma_g / \sqrt{\Delta t_{\text{IMU}}}$ and $\sigma_a / \sqrt{\Delta t_{\text{IMU}}}$, respectively, at the 200\,Hz sample rate. Bias random walks are not currently simulated in the IMU sensor but are modeled in the ESKF process noise (Section~\ref{sec:modeling:eskf}) for robustness margin. Adding bias simulation is part of planned hardware-in-the-loop validation.
+
+Cable tension and direction are read from the Drake plant state, which serves as a proxy for calibrated load-cell and encoder measurements (Section~\ref{sec:modeling:cable_sensing}). Dedicated noise models for these channels are not included in the current simulation but are part of planned hardware integration.
+
+\subsubsection{Barometer Sensor}
+
+The barometer sensor (\texttt{BarometerSensor}) converts the true altitude to a pressure-equivalent altitude measurement using the hypsometric equation~\eqref{eq:altitude_scaling}. White noise ($\sigma_w = 0.3$\,m), correlated noise ($\sigma_c = 0.2$\,m, correlation coefficient $\rho_c = 0.995$), and quantization (resolution $\Delta z = 0.1$\,m) are applied as described in Section~\ref{sec:modeling:sensors}. The barometer operates at 25\,Hz and provides the ESKF with altitude observability independent of GPS.
+
+% ============================================================
+\subsection{Wind Disturbance Implementation}
+\label{sec:simulation:wind}
+% ============================================================
+
+The wind disturbance system (\texttt{WindDisturbance}) implements the Dryden turbulence model described in Section~\ref{sec:modeling:wind}. It maintains separate turbulence states for each quadrotor and outputs a $3N$-dimensional wind velocity vector at 100\,Hz.
+
+The baseline configuration uses:
+\begin{itemize}
+  \item Mean wind: $\bar{v}_w = [1.0,\; 0.5,\; 0.0]^\top$\,m/s (light breeze from northwest).
+  \item Turbulence intensities: $\sigma_u = \sigma_v = 0.5$\,m/s, $\sigma_w = 0.25$\,m/s.
+  \item Altitude-dependent scaling: enabled, with turbulence lengths $L_u = L_v = 200$\,m, $L_w = 50$\,m at the reference altitude of 6\,m.
+  \item Gusts: disabled in the baseline (enabled in specific experiments).
+\end{itemize}
+The wind velocities are applied to each quadrotor as aerodynamic drag forces. The spatial correlation model (Section~\ref{sec:modeling:wind}) ensures that nearby quadrotors experience correlated turbulence, which is important for realistic multi-agent disturbance rejection.
+
+The wind system receives each quadrotor's current position (extracted from the plant state by an \texttt{AttachmentPositionExtractor} system) to compute altitude-dependent turbulence parameters and spatial correlations.
+
+% ============================================================
+\subsection{Trajectory Generation}
+\label{sec:simulation:trajectory}
+% ============================================================
+
+The reference trajectory is defined by a waypoint sequence that specifies the desired positions and timing for the quadrotor formation centroid. Each quadrotor adds its formation offset $\Delta p_i = [r_f \cos(2\pi i / N),\; r_f \sin(2\pi i / N),\; 0]^\top$ to the shared centroid trajectory.
+
+\subsubsection{Waypoint Sequence}
+
+The benchmark trajectory consists of eight phases:
+\begin{enumerate}
+  \item \textbf{Pre-lift hover} ($0$--$2$\,s): Stabilize at $z = 1.2$\,m. Cables transition from slack to taut.
+  \item \textbf{Ascent} ($2$--$4$\,s): Rise to $z = 3.0$\,m. Payload lifts off the ground; tension increases from $0$ to $\sim$$m_L g / N = 9.8$\,N per cable.
+  \item \textbf{Right loop entry} ($4$--$7$\,s): Translate to $(1.5, 0.5, 3.2)$\,m.
+  \item \textbf{Figure-eight right loop} ($7$--$19$\,s): Four waypoints tracing a clockwise loop of radius $\sim$$1.5$\,m with altitude variation $\pm 0.5$\,m.
+  \item \textbf{Center crossing} ($19$--$21$\,s): Return through origin at $z = 3.0$\,m.
+  \item \textbf{Figure-eight left loop} ($21$--$36$\,s): Symmetric counter-clockwise loop.
+  \item \textbf{Return and stabilize} ($36$--$39$\,s): Return to origin, $z = 3.0$\,m.
+  \item \textbf{Controlled descent} ($39$--$43$\,s): Descend to $z = 2.0$\,m.
+\end{enumerate}
+The total active trajectory duration is 43\,s; the simulation runs for $T_{\text{sim}} = 50$\,s to capture the post-descent settling behavior.
+
+\subsubsection{Minimum-Jerk Interpolation}
+
+Between waypoints, the trajectory is interpolated using minimum-jerk (quintic) polynomials:
+\begin{equation}
+  p_d(t) = a_0 + a_1\,\tau + a_2\,\tau^2 + a_3\,\tau^3 + a_4\,\tau^4 + a_5\,\tau^5,
+  \label{eq:min_jerk}
+\end{equation}
+where $\tau = (t - t_k) / (t_{k+1} - t_k) \in [0, 1]$ is the normalized time within the segment. The six coefficients are determined by the boundary conditions: position, velocity, and acceleration at both endpoints. Zero velocity and acceleration at waypoints yield smooth cornering. The \texttt{LoadTrajectoryGenerator} system precomputes these coefficients for all segments and evaluates them in $\mathcal{O}(1)$ per output call. The generator also enforces dynamics limits: $\norm{v_d} \leq 1.0$\,m/s, $\norm{a_d} \leq 2.0$\,m/s$^2$, and $\norm{j_d} \leq 5.0$\,m/s$^3$.
+
+\subsubsection{Load Trajectory Offset}
+
+The waypoints define the quadrotor centroid trajectory. The load reference trajectory is computed by subtracting the vertical offset:
+\begin{equation}
+  p_{d_L}(t) = p_d(t) - \Delta z_{\text{total}}\,e_3,
+  \label{eq:load_offset}
+\end{equation}
+where $\Delta z_{\text{total}} = |z_{\text{attach}}| + \bar{L}\,(1 + \epsilon_{\max}) + r_L$ accounts for the quadrotor attachment offset ($|z_{\text{attach}}| = 0.10$\,m below center), the stretched cable length, and the payload radius. The load reference is clamped to $z_{d_L} \geq r_L + \epsilon$ to prevent ground penetration commands.
+
+% ============================================================
+\subsection{System Interconnection}
+\label{sec:simulation:interconnection}
+% ============================================================
+
+The Drake diagram connects all systems via typed ports. The key signal paths are:
+
+\paragraph{Physics-to-Sensor} The plant state output (containing all body poses and velocities) is broadcast to every sensor system. Each sensor extracts the relevant body's state using Drake's \texttt{MultibodyPlant} API and applies its noise model.
+
+\paragraph{Sensor-to-Estimator} GPS, IMU, and barometer outputs connect to the ESKF. The ESKF output connects to the decentralized load estimator and the adaptive mass estimator.
+
+\paragraph{Estimator-to-Controller} The ESKF position/velocity estimate feeds the GPAC position controller (Layer~1). The configuration flag \texttt{use\_estimated\_in\_controller} selects between the estimated state and the ground truth for the control loop, enabling controlled ablation studies. The load state estimate feeds the adaptive mass estimator's regressor computation.
+
+\paragraph{Controller-to-Plant} Each controller produces an \texttt{ExternallyAppliedSpatialForce} (thrust and torque in the body frame). An \texttt{ExternallyAppliedSpatialForceMultiplexer} combines the $2N$ force sources ($N$ controllers and $N$ rope force systems) into a single force vector applied to the plant.
+
+\paragraph{Rope Force System} Each \texttt{RopeForceSystem} reads the full plant state, computes the spring-damper forces between consecutive beads and at the attachment points, and outputs both the spatial forces (for the physics plant) and the cable tension magnitude (for the controller and estimator).
+
+% ============================================================
+\subsection{Data Logging and Reproducibility}
+\label{sec:simulation:logging}
+% ============================================================
+
+\subsubsection{Signal Logging}
+
+The \texttt{SimulationDataLogger} system records all simulation signals to timestamped CSV files at 100\,Hz. The logged signals include:
+\begin{itemize}
+  \item Plant state: full $13N_b$-dimensional state vector (position, quaternion, velocity for each body), from which payload and quadrotor trajectories are extracted.
+  \item Tension profiles: per-cable tension magnitude and direction vector.
+  \item Control efforts: per-quadrotor thrust and torque commands.
+  \item GPS measurements and validity flags.
+  \item IMU measurements: accelerometer (3-axis) and gyroscope (3-axis).
+  \item Barometer altitude measurements.
+  \item Estimator outputs: ESKF state, load state, adaptive mass parameter.
+  \item Wind disturbance velocity at each quadrotor.
+  \item Attitude data: desired and actual rotation matrices, attitude errors.
+\end{itemize}
+A configuration file recording all simulation parameters (masses, gains, rope lengths, random seeds, waypoints) is written alongside the data files.
+
+\subsubsection{Visualization}
+
+The simulation uses Drake's Meshcat backend for real-time 3D rendering. In addition to the default rigid-body visualization, custom overlays include:
+\begin{itemize}
+  \item \emph{Rope polylines}: \texttt{RopeVisualizer} systems render each bead chain as a colored polyline, updated at the simulation rate.
+  \item \emph{Trajectory trails}: A \texttt{TrajectoryVisualizer} system draws the reference trajectory as a static green polyline and appends trail points for the payload (orange) and each quadrotor at 20\,Hz.
+  \item \emph{Tension plot}: A \texttt{TensionPlotter} system renders a real-time tension-vs-time strip chart in the Meshcat sidebar, showing 10\,s windows with per-cable color coding.
+\end{itemize}
+The target real-time rate is $1\times$; the simulation advances in 100\,ms chunks with progress reporting.
+
+\subsubsection{Reproducibility}
+
+All stochastic elements (rope length sampling, GPS noise, IMU noise, barometer noise, wind turbulence) are seeded with fixed, per-component seeds: GPS sensors use seeds $100 + i$, IMU sensors $200 + i$, barometers $300 + i$, and the rope length sampler seed $42$. Changing the master seed allows systematic variation of the noise realization while maintaining consistent inter-component behavior. The simulation time step, integrator tolerances, and contact parameters are fixed at the values reported above.
