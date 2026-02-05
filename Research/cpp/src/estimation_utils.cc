@@ -105,4 +105,44 @@ void TensionAggregator::CalcTensions(const Context<double>& context,
   }
 }
 
+// =============================================================================
+// CableDirectionFromTension
+// =============================================================================
+
+CableDirectionFromTension::CableDirectionFromTension(double tension_threshold)
+    : tension_threshold_(tension_threshold) {
+
+  tension_input_port_ = DeclareVectorInputPort(
+      "tension", BasicVector<double>(4))
+      .get_index();
+
+  direction_output_port_ = DeclareVectorOutputPort(
+      "cable_direction", BasicVector<double>(3),
+      &CableDirectionFromTension::CalcDirection)
+      .get_index();
+}
+
+void CableDirectionFromTension::CalcDirection(
+    const Context<double>& context,
+    BasicVector<double>* output) const {
+
+  const auto& tension_vec = get_input_port(tension_input_port_).Eval(context);
+  const double T = tension_vec[0];
+
+  if (T > tension_threshold_) {
+    Eigen::Vector3d force_dir(tension_vec[1], tension_vec[2], tension_vec[3]);
+    double norm = force_dir.norm();
+    if (norm > 1e-8) {
+      force_dir /= norm;
+      output->SetFromVector(force_dir);
+      return;
+    }
+  }
+
+  // Default: straight down
+  output->SetAtIndex(0, 0.0);
+  output->SetAtIndex(1, 0.0);
+  output->SetAtIndex(2, -1.0);
+}
+
 }  // namespace quad_rope_lift

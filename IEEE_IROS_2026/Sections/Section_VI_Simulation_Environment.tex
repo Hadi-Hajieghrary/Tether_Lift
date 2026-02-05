@@ -83,7 +83,7 @@ Each sensor is implemented as a Drake \texttt{LeafSystem} that reads the ground-
 
 \subsubsection{GPS Sensor}
 
-The GPS sensor (\texttt{GpsSensor}) extracts the body-frame position from the plant state, adds zero-mean Gaussian noise $(\sigma_{xy} = 0.02$\,m, $\sigma_z = 0.05$\,m), and applies a configurable dropout probability ($p_{\text{drop}} = 0.0$ in the baseline experiments). A validity flag is output alongside the position, which the ESKF uses to skip the GPS update step during outages. Each quadrotor and the payload have independent GPS sensors with distinct random seeds to ensure uncorrelated noise realizations. The payload GPS sensor (10\,Hz, $\sigma = 5$\,cm) is included solely for ground-truth evaluation and the centralized estimator upper bound; it is \emph{not} available to any decentralized agent.
+The GPS sensor (\texttt{GpsSensor}) extracts the body-frame position from the plant state, adds zero-mean Gaussian noise $(\sigma_{xy} = 0.02$\,m, $\sigma_z = 0.05$\,m), and applies a configurable dropout probability ($p_{\text{drop}} = 0.0$ in the baseline experiments). A validity flag is output alongside the position, which the ESKF uses to skip the GPS update step during outages. Each quadrotor and the payload have independent GPS sensors with distinct random seeds to ensure uncorrelated noise realizations. The payload GPS sensor (10\,Hz, $\sigma = 5$\,cm) is included solely for ground-truth evaluation; it is \emph{not} available to any decentralized agent.
 
 \subsubsection{IMU Sensor}
 

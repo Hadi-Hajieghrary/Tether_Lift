@@ -47,6 +47,7 @@
 #include <drake/systems/primitives/vector_log_sink.h>
 #include <drake/systems/primitives/multiplexer.h>
 #include <drake/systems/primitives/demultiplexer.h>
+#include <drake/systems/primitives/constant_vector_source.h>
 
 #include "quadcopter_controller.h"
 #include "rope_force_system.h"
@@ -58,7 +59,7 @@
 #include "barometer_sensor.h"
 #include "wind_disturbance.h"
 #include "position_velocity_estimator.h"
-#include "load_estimator.h"
+#include "decentralized_load_estimator.h"
 #include "estimation_utils.h"
 #include "estimation_error_computer.h"
 #include "trajectory_visualizer.h"
@@ -92,6 +93,7 @@ namespace quad_rope_lift
     using drake::systems::ZeroOrderHold;
     using drake::systems::Multiplexer;
     using drake::systems::Demultiplexer;
+    using drake::systems::ConstantVectorSource;
 
     /// Configuration for a single quadcopter in the formation.
     struct QuadConfig {
@@ -520,7 +522,8 @@ namespace quad_rope_lift
         std::vector<GpsSensor*> quad_gps_sensors;
         std::vector<PositionVelocityEstimator*> quad_estimators;
         GpsSensor* load_gps_sensor = nullptr;
-        LoadStateEstimator* load_estimator = nullptr;
+        std::vector<DecentralizedLoadEstimator*> load_estimators;
+        Multiplexer<double>* load_est_mux = nullptr;  // combines quad 0's pos+vel into 6D
 
         if (enable_estimation) {
             std::cout << "\n========================================" << std::endl;
@@ -566,60 +569,62 @@ namespace quad_rope_lift
                                 estimator.get_gps_valid_input_port());
             }
 
-            // GPS sensor for load
+            // GPS sensor for load (kept for data logging)
             gps_params.random_seed = 999;
             load_gps_sensor = &(*builder.AddSystem<GpsSensor>(
                 plant, payload_body, gps_params));
-
-            // Load state estimator
-            LoadEstimatorParams load_est_params;
-            load_est_params.gps_measurement_noise = gps_position_noise;
-            load_estimator = &(*builder.AddSystem<LoadStateEstimator>(
-                num_quadcopters, estimator_dt, load_est_params));
-
-            // Connect load GPS sensor
             builder.Connect(plant.get_state_output_port(),
                             load_gps_sensor->get_plant_state_input_port());
-            builder.Connect(load_gps_sensor->get_gps_position_output_port(),
-                            load_estimator->get_gps_position_input_port());
-            builder.Connect(load_gps_sensor->get_gps_valid_output_port(),
-                            load_estimator->get_gps_valid_input_port());
 
-            // Create helper systems for load estimator inputs
+            // Decentralized load estimators (one per quadcopter)
+            DecentralizedLoadEstimatorParams dec_est_params;
+            load_estimators.reserve(num_quadcopters);
 
-            // 1. Quad attachment position extractor
-            std::vector<const RigidBody<double>*> quad_bodies_vec;
-            std::vector<Eigen::Vector3d> quad_offsets_vec;
             for (int q = 0; q < num_quadcopters; ++q) {
-                quad_bodies_vec.push_back(quadcopter_bodies[q]);
-                quad_offsets_vec.push_back(quad_attachment_offset);
-            }
-            auto& quad_pos_extractor = *builder.AddSystem<AttachmentPositionExtractor>(
-                plant, quad_bodies_vec, quad_offsets_vec);
-            builder.Connect(plant.get_state_output_port(),
-                            quad_pos_extractor.get_plant_state_input_port());
-            builder.Connect(quad_pos_extractor.get_positions_output_port(),
-                            load_estimator->get_quad_positions_input_port());
+                // Create per-quad load estimator
+                auto& dec_est = *builder.AddSystem<DecentralizedLoadEstimator>(
+                    estimator_dt, dec_est_params);
+                load_estimators.push_back(&dec_est);
 
-            // 2. Cable length source (uses sampled rope lengths)
-            std::vector<double> cable_lengths_vec;
-            for (int q = 0; q < num_quadcopters; ++q) {
-                cable_lengths_vec.push_back(quad_configs[q].rope_length);
-            }
-            auto& cable_length_source = *builder.AddSystem<CableLengthSource>(
-                cable_lengths_vec);
-            builder.Connect(cable_length_source.get_lengths_output_port(),
-                            load_estimator->get_cable_lengths_input_port());
+                // Split quad estimator output [x,y,z,vx,vy,vz] into pos(3) + vel(3)
+                auto& est_demux = *builder.AddSystem<Demultiplexer<double>>(6, 3);
+                builder.Connect(quad_estimators[q]->get_estimated_state_output_port(),
+                                est_demux.get_input_port(0));
+                builder.Connect(est_demux.get_output_port(0),
+                                dec_est.get_quad_position_input_port());
+                builder.Connect(est_demux.get_output_port(1),
+                                dec_est.get_quad_velocity_input_port());
 
-            // 3. Tension aggregator
-            auto& tension_aggregator = *builder.AddSystem<TensionAggregator>(
-                num_quadcopters);
-            for (int q = 0; q < num_quadcopters; ++q) {
+                // Cable direction from rope tension vector
+                auto& cable_dir = *builder.AddSystem<CableDirectionFromTension>();
                 builder.Connect(rope_systems[q]->get_tension_output_port(),
-                                tension_aggregator.get_tension_input_port(q));
+                                cable_dir.get_tension_input_port());
+                builder.Connect(cable_dir.get_direction_output_port(),
+                                dec_est.get_cable_direction_input_port());
+
+                // Cable length (constant scalar)
+                Eigen::VectorXd len_vec(1);
+                len_vec << quad_configs[q].rope_length;
+                auto& cable_len = *builder.AddSystem<ConstantVectorSource<double>>(len_vec);
+                builder.Connect(cable_len.get_output_port(),
+                                dec_est.get_cable_length_input_port());
+
+                // Scalar tension from 4D tension output [T, fx, fy, fz]
+                auto& tension_demux = *builder.AddSystem<Demultiplexer<double>>(
+                    std::vector<int>{1, 3});
+                builder.Connect(rope_systems[q]->get_tension_output_port(),
+                                tension_demux.get_input_port(0));
+                builder.Connect(tension_demux.get_output_port(0),
+                                dec_est.get_cable_tension_input_port());
             }
-            builder.Connect(tension_aggregator.get_tensions_output_port(),
-                            load_estimator->get_tensions_input_port());
+
+            // Combine quad 0's load estimate into 6D [p, v] for downstream consumers
+            load_est_mux = &(*builder.AddSystem<Multiplexer<double>>(
+                std::vector<int>{3, 3}));
+            builder.Connect(load_estimators[0]->get_load_position_output_port(),
+                            load_est_mux->get_input_port(0));
+            builder.Connect(load_estimators[0]->get_load_velocity_output_port(),
+                            load_est_mux->get_input_port(1));
         }
 
         // -------------------------------------------------------------------------
@@ -791,7 +796,7 @@ namespace quad_rope_lift
                 plant, payload_body);
             builder.Connect(plant.get_state_output_port(),
                             load_error_computer.get_plant_state_input_port());
-            builder.Connect(load_estimator->get_estimated_state_output_port(),
+            builder.Connect(load_est_mux->get_output_port(0),
                             load_error_computer.get_estimated_state_input_port());
 
             load_error_logger = &(*builder.AddSystem<VectorLogSink<double>>(8));
@@ -945,7 +950,7 @@ namespace quad_rope_lift
             }
             builder.Connect(load_gps_sensor->get_gps_position_output_port(),
                             data_logger.get_load_gps_input());
-            builder.Connect(load_estimator->get_estimated_state_output_port(),
+            builder.Connect(load_est_mux->get_output_port(0),
                             data_logger.get_load_estimated_state_input());
         }
 
@@ -1064,12 +1069,14 @@ namespace quad_rope_lift
                     Eigen::Vector3d::Zero());
             }
 
-            // Initialize load estimator with true initial position
-            auto& load_est_context = load_estimator->GetMyMutableContextFromRoot(&context);
-            load_estimator->SetInitialState(
-                &load_est_context,
-                Eigen::Vector3d(0.0, 0.0, payload_radius + ground_clearance),
-                Eigen::Vector3d::Zero());
+            // Initialize decentralized load estimators with true initial position
+            for (int q = 0; q < num_quadcopters; ++q) {
+                auto& load_est_context = load_estimators[q]->GetMyMutableContextFromRoot(&context);
+                load_estimators[q]->SetInitialState(
+                    &load_est_context,
+                    Eigen::Vector3d(0.0, 0.0, payload_radius + ground_clearance),
+                    Eigen::Vector3d::Zero());
+            }
         }
 
         // Publish initial state

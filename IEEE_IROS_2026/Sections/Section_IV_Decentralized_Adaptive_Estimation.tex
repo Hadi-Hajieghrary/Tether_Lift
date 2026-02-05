@@ -98,7 +98,7 @@ with blending factor $\alpha_v = 0.3$. The covariance is bounded element-wise to
 \label{sec:estimation:centralized}
 % ============================================================
 
-As a comparison baseline, we also implement a centralized EKF that fuses all available measurements. Although this estimator requires a central processor with access to all quadrotor states, it provides a performance upper bound for evaluating the decentralized approach.
+As a comparison baseline for ablation studies (Section~\ref{sec:results:ablation}), we also evaluate a centralized EKF that fuses all available measurements. Although this estimator requires a central processor with access to all quadrotor states, it provides a performance upper bound for evaluating the decentralized approach. It is \emph{not} part of the online estimation pipeline; each agent runs only the decentralized estimator described above.
 
 \subsubsection{State and Process Model}
 

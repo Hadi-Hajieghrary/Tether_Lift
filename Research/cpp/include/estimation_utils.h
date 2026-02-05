@@ -97,4 +97,31 @@ class TensionAggregator final : public drake::systems::LeafSystem<double> {
   int num_cables_;
 };
 
+/// Extracts cable direction unit vector from the rope tension output.
+///
+/// Input: 4D tension vector [T, fx, fy, fz] from RopeForceSystem
+/// Output: 3D unit direction normalize([fx, fy, fz]), or [0,0,-1] when slack
+class CableDirectionFromTension final : public drake::systems::LeafSystem<double> {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(CableDirectionFromTension);
+
+  explicit CableDirectionFromTension(double tension_threshold = 0.1);
+
+  const drake::systems::InputPort<double>& get_tension_input_port() const {
+    return get_input_port(tension_input_port_);
+  }
+
+  const drake::systems::OutputPort<double>& get_direction_output_port() const {
+    return get_output_port(direction_output_port_);
+  }
+
+ private:
+  void CalcDirection(const drake::systems::Context<double>& context,
+                     drake::systems::BasicVector<double>* output) const;
+
+  double tension_threshold_;
+  int tension_input_port_{-1};
+  int direction_output_port_{-1};
+};
+
 }  // namespace quad_rope_lift
