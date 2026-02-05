@@ -388,7 +388,7 @@ A 3D line graph in the corner shows tension history:
 
 A full Meshcat simulation recording is available for offline playback:
 
-> **[`outputs/simulation_recording.html`](outputs/simulation_recording.html)** — Self-contained HTML capture of a complete 15-second cooperative lift simulation (3 quadcopters, bead-chain ropes, 3 kg payload). Open in any browser to scrub through the trajectory: hover → ascend → translate → descend. Includes drone meshes, rope polylines, payload, ground plane, and reference trajectory overlay.
+> **[`Research/outputs/simulation_recording.html`](Research/outputs/simulation_recording.html)** — Self-contained HTML capture of a complete 15-second cooperative lift simulation (3 quadcopters, bead-chain ropes, 3 kg payload). Open in any browser to scrub through the trajectory: hover → ascend → translate → descend. Includes drone meshes, rope polylines, payload, ground plane, and reference trajectory overlay.
 
 To view, download the file and open it locally in a browser, or use GitHub's raw file link:
 ```
