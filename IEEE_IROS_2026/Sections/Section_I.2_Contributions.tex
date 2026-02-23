@@ -1,0 +1,90 @@
+
+% ============================================================
+% Specific contributions
+% ============================================================
+
+The specific contributions of this work are as follows. At the highest level, the GPAC architecture decomposes the cooperative transport problem into $N$ identical single-agent subproblems. Each drone independently estimates only its own share of the payload mass, $\hat{\theta}_i \approx m_L/N$, using local cable tension and direction measurements. The key insight is that when all agents do this simultaneously, their combined forces automatically sum to the correct total---no explicit coordination required. A modular safety filter overlays the resulting controller to enforce physical constraints (cable tautness, collision avoidance) with minimal performance impact.
+
+In addition, we provide an analysis of how the proposed architecture mitigates major cooperative transport failure modes—such as actuator degradation, cable anomalies, collision risk, and environmental disturbances—drawing connections to established safety engineering practices. This analysis clarifies how theoretical stability and constraint guarantees translate into practical operational robustness.
+
+\begin{enumerate}
+  \item \textbf{Decentralized geometric cooperative transport with formal stability guarantees.}
+  We derive an operationally decentralized control law---no peer-to-peer state exchange is required at runtime; each agent receives only the shared reference trajectory via a common broadcast---in which each quadrotor's policy depends only on its own state and local cable-tension and direction measurements. No drone requires knowledge of~$N$ or~$m_L$. The control is formulated directly on $\SOthree \times \Sph^2$ using the attitude error~\eqref{eq:eR_model} and the $\Sph^2$ cable direction error~\eqref{eq:eq_model}, preserving global geometric structure. Unlike prior decentralized controllers that linearize around hover or use Euclidean error metrics, this is, to our knowledge, the first decentralized geometric controller for multi-UAV cable transport that operates directly on the nonlinear $\mathrm{SE}(3) \times (\mathbb{S}^2)^N$ manifold. The key theoretical novelty is proving that independent local estimation of $\hat{\theta}_i$ yields implicit coordination~\eqref{eq:force_convergence} without requiring any communication or parameter sharing---a property that does not hold for linearized or impedance-based decentralized approaches. We show that when each agent independently estimates its load share parameter $\hat{\theta}_i \to m_L/N$, the summed forces automatically converge to the correct total without explicit coordination:
+  \begin{equation}
+    \sum_{i=1}^{N} F_i = \sum_{i=1}^{N} \hat{\theta}_i \cdot u \;\longrightarrow\; m_L \cdot u.
+    \label{eq:force_convergence}
+  \end{equation}
+
+  \item \textbf{Concurrent learning adaptive estimation without persistent excitation.}
+  We introduce a decentralized adaptive estimation scheme in which each drone independently estimates the ratio $\hat{\theta} = m_L / N$ using only its local cable tension $ T_i$, cable angle $ \ phi_i$, and load acceleration estimate. The key insight is that
+  \begin{equation}
+    \frac{T_i \cos\phi_i}{\norm{g\,e_3 + a_L}} \;\longrightarrow\; \frac{m_L}{N},
+    \label{eq:theta_estimation}
+  \end{equation}
+  the quantity each drone actually needs, without requiring knowledge of either~$m_L$ or~$N$ individually. A concurrent learning algorithm~\cite{chowdhary2010concurrent} with a rank-maximizing history stack of regressor--output pairs $(Y_j, z_j)$ ensures parameter convergence via the update law
+  \begin{equation}
+    \dot{\hat{\theta}} = \Gamma\!\left(Y^\top s + \rho \sum_{j=1}^{M} Y_j^\top\!\bigl(Y_j \hat{\theta} - z_j\bigr)\right)\!,
+    \label{eq:concurrent_learning}
+  \end{equation}
+  without the persistent excitation condition---which is critical because cooperative hover, the nominal operating condition, provides insufficient excitation for classical adaptive laws. The theoretical contribution is the adaptation of concurrent learning to a decentralized multi-agent geometric setting, where each agent's regressor is constructed from purely local cable measurements. This is non-trivial because the regressor vector depends on the coupled system dynamics, yet we show that the local tension equilibrium~\eqref{eq:theta_estimation} provides a sufficient scalar parametric model for each agent independently.
+
+  \item \textbf{Multi-rate hierarchical architecture with time-scale separation.}
+  The GPAC architecture implements a four-layer cascade with deliberate bandwidth separation:
+  \begin{itemize}
+    \item \emph{Layer 1 (${\sim}$50\,Hz effective):} Position tracking with $\Sph^2$ anti-swing control, producing a desired thrust direction from the force command
+    \begin{equation}
+      F_{\mathrm{des}} = -K_p(p - p_d) - K_d(\dot{p} - \dot{p}_d) + \hat{\theta}\bigl(g\,e_3 + \ddot{p}_d^L\bigr) + F_{\mathrm{swing}},
+      \label{eq:position_control}
+    \end{equation}
+    where $F_{\mathrm{swing}} = k_q\,e_q + k_\omega(q_d \times \omega_q)$ damps cable oscillations on the tangent space $T_q\Sph^2$.
+    \item \emph{Layer 2 (200\,Hz):} Geometric $\SOthree$ attitude tracking with the control torque
+    \begin{equation}
+      \tau = -K_R\,e_R - K_\Omega\,e_\Omega + \Omega \times J\Omega + J\!\bigl(\hatmap{\Omega}\,R^\top R_d\,\Omega_d - R^\top R_d\,\dot{\Omega}_d\bigr) - \hat{d},
+      \label{eq:attitude_control}
+    \end{equation}
+    where $e_\Omega = \Omega - R^\top R_d\,\Omega_d$ is the angular velocity error and $\hat{d}$ is the ESO disturbance estimate.
+    \item \emph{Layer 3 (50\,Hz):} Concurrent learning parameter estimation via~\eqref{eq:concurrent_learning}.
+    \item \emph{Layer 4 (continuous, $\omega_0 = 50$\,rad/s):} Third-order Extended State Observer (ESO) per translational axis,
+    \begin{equation}
+      \dot{\hat{x}}_1 = \hat{x}_2 + 3\omega_0\tilde{x}, \;\;
+      \dot{\hat{x}}_2 = \hat{x}_3 + 3\omega_0^2\tilde{x}, \;\;
+      \dot{\hat{x}}_3 = \omega_0^3\tilde{x},
+      \label{eq:eso}
+    \end{equation}
+    with $\tilde{x} = x - \hat{x}_1$ and bandwidth $\omega_0 = 50$\,rad/s, estimating the lumped disturbance $\hat{d} = \hat{x}_3$.
+  \end{itemize}
+  The deliberate time-scale separation enables independent Lyapunov analysis of each layer while the cascade composition preserves overall closed-loop stability, making the decentralized stability proof tractable via singular perturbation arguments.
+
+  \item \textbf{Modular CBF safety filter preserving geometric stability certificates.}
+  We design a Control Barrier Function safety layer implemented as an online QP that bounds safety constraint violations via ISSf margins. Defining barrier functions for cable tautness $h_1 = \norm{p_q - p_L} - L_{\min}$, cable angle $h_2 = \cos\theta - \cos\theta_{\max}$, swing rate bounds, vehicle tilt limits, and inter-agent collision avoidance, the safety filter solves
+  \begin{equation}
+    \min_{u,\,\delta} \;\norm{u - u_{\mathrm{nom}}}^2 + \lambda\,\delta^2 \quad
+    \text{s.t.} \;\; \dot{h}_k + \alpha_k h_k \geq -\delta_k, \;\; \forall\, k,
+    \label{eq:cbf_qp_intro}
+  \end{equation}
+  where $u_{\mathrm{nom}}$ is the geometric controller output, $\alpha_k > 0$ are class-$\mathcal{K}$ coefficients, and the slack variables~$\delta_k$ resolve potential conflicts between competing constraints and the geometric controller's convergence requirements. Higher-order CBF (HOCBF) formulations handle relative-degree-two constraints, such as cable tautness, and a second-order Butterworth filter provides smooth tension-rate estimates for the constraint Jacobians. The filter operates as a modular overlay, minimally modifying the nominal geometric control input to enforce constraint satisfaction. The key theoretical result (Theorem~\ref{thm:compatibility}) establishes that the CBF safety filter preserves the almost-global exponential stability certificate of the geometric attitude controller---a compatibility proof that requires bounding the attitude perturbation induced by the force modification on $\SOthree$. This compatibility argument, specific to the cable-transport setting, shows that the CBF-induced attitude perturbation remains within the almost-global stability region of the geometric controller under bounded disturbances and within the ISSf inflation $\mathcal{C}_\mu$.
+
+  \item \textbf{Sensor-realistic validation with flexible cable dynamics.}
+  The complete framework is validated in a Drake-based~\cite{drake2024} multibody simulation incorporating:
+  \begin{enumerate}
+    \item Flexible cables modeled as bead-chain discretizations with $n_b = 8$ point-mass beads per cable and $n_b + 1 = 9$ tension-only spring-damper segments that naturally capture slack-to-taut transitions, wave propagation, and distributed inertia;
+    \item A full onboard sensor suite comprising IMUs with Gauss--Markov bias dynamics (noise density $\sigma_a = 0.004$\,m/s$^2$/$\sqrt{\text{Hz}}$, $\sigma_g = 5 \times 10^{-4}$\,rad/s/$\sqrt{\text{Hz}}$, bias time constant $\tau_b = 3600$\,s), GPS receivers with stochastic dropouts ($\sigma_{xy} = 0.02$\,m, $\sigma_z = 0.05$\,m), and barometric altimeters with correlated noise ($\sigma_w = 0.3$\,m, correlation time $\tau_c = 5$\,s, drift rate $0.002$\,m/s);
+    \item A 15-state ESKF with error state $\delta x = [\delta p,\; \delta v,\; \delta\theta,\; \delta b_a,\; \delta b_g]^\top \in \R^{15}$ fusing these heterogeneous measurements;
+    \item Dryden-spectrum wind turbulence with turbulence intensities $\sigma_u = \sigma_v = 0.5$\,m/s, $\sigma_w = 0.25$\,m/s, and altitude-dependent scaling.
+  \end{enumerate}
+  This constitutes a high-fidelity simulation study incorporating flexible cable dynamics, multi-rate sensor models, and atmospheric turbulence, providing a rigorous validation environment for the proposed architecture.
+  \item 
+  
+\end{enumerate}
+
+% ============================================================
+% Key insight recap
+% ============================================================
+
+Taken together, these contributions demonstrate that it is possible to simultaneously achieve operational decentralization, geometric rigor on the proper configuration manifold, ISSf safety guarantees bounding constraint violations under disturbances, and robustness to realistic sensing and environmental conditions---addressing the critical deployment gap that has prevented geometric cooperative transport theory from transitioning to operational multi-agent systems. The key enabling insight is the $\hat{\theta} = m_L/N$ estimation architecture, which reduces the cooperative transport problem to~$N$ identical single-agent problems whose solutions automatically compose to the correct collective behavior without explicit coordination or parameter sharing.
+
+% ============================================================
+% Paper organization
+% ============================================================
+
+The remainder of this paper is organized as follows. Section~\ref{sec:modeling} formalizes the multi-body dynamic model on $\SEthree \times (\Sph^2)^N$, including the bead-chain cable model, sensor noise models, and wind disturbance characterization. Section~\ref{sec:control} presents the GPAC hierarchical control architecture, deriving the control laws for each layer and establishing the individual and cascade stability properties. Section~\ref{sec:estimation} details the decentralized adaptive estimation scheme and its convergence guarantees under concurrent learning. Section~\ref{sec:safety} formulates the CBF safety filter and proves compatibility with the geometric controller. Section~\ref{sec:simulation} describes the Drake simulation environment, sensor models, and implementation details. Section~\ref{sec:results} presents comprehensive simulation results for multi-phase transport scenarios including hover, ascent, lateral translation, and descent under wind disturbance and sensor noise, with comparisons to centralized baselines and ablation studies. Section~\ref{sec:conclusion} concludes with a discussion of limitations and directions for future work, including experimental validation on physical platforms.

@@ -101,20 +101,30 @@
 
 \begin{document}
 \title{Cooperative Transport via Flexible Cable Suspensions:\\ Decentralized Geometric Control with Adaptive Estimation and Safety Guarantees}
-\author{Hadi Hajieghrary$^{1}$, Benedikt Walter$^{2}$, Miguel Hurtado$^{3}$, and Paul Schmitt$^{4}$% <-this % stops a space
-\thanks{$^{1}$Hadi Hajieghrary \{{\tt\small Hadi.Hajieghrary@gatech.edu}\}, ...}%
- }
-
+% \author{Hadi Hajieghrary$^{1}$, Benedikt Walter$^{2}$, Miguel Hurtado$^{3}$, and Paul Schmitt$^{4}$% <-this % stops a space
+% \thanks{$^{1}$Hadi Hajieghrary \{{\tt\small Hadi.Hajieghrary@gatech.edu}\}, ...}%
+%  }
+\author{Anonymous Authors\thanks{Submitted for review. Author information is withheld for double-blind evaluation.}}
 
 \maketitle
 
 \begin{abstract}
-We present the Geometric Position and Attitude Control (GPAC) architecture for decentralized cooperative aerial transport via flexible cable suspensions. Each of $N$~quadrotors operates with zero knowledge of the team size~$N$, payload mass~$m_L$, or any other agent's state, yet the closed-loop system maintains geometric control on the full $\mathrm{SE}(3) \times (\mathbb{S}^2)^N$ configuration manifold with Lyapunov-certifiable stability guarantees. A concurrent learning adaptive law enables each drone to independently estimate its payload share $\hat{\theta}_i \to m_L/N$ without persistent excitation, and a modular Control Barrier Function safety filter enforces cable tautness, swing angle, tilt, and collision constraints with input-to-state safety (ISSf) guarantees---bounding constraint violations under disturbances---provably compatible with the geometric attitude controller. The framework is validated in a high-fidelity Drake-based simulation incorporating flexible bead-chain cable dynamics, onboard sensor models (IMU, GPS, barometer) with Error-State Kalman Filter fusion, and Dryden wind turbulence. The decentralized architecture achieves 22.9\,cm payload tracking RMSE, maintains safety constraints within ISSf margins, and requires less than 1\,MFLOP/s per agent, demonstrating feasibility for embedded deployment.
+We present the Geometric Position and Attitude Control (GPAC) architecture for decentralized cooperative aerial transport via flexible cable suspensions. Each of $N$~quadrotors operates with zero knowledge of the team size~$N$, payload mass~$m_L$, or any other agent's state, yet the closed-loop system maintains geometric control on the full $\mathrm{SE}(3) \times (\mathbb{S}^2)^N$ configuration manifold with Lyapunov-certifiable stability guarantees. A concurrent learning adaptive law enables each drone to independently estimate its payload share $\hat{\theta}_i \to m_L/N$ without persistent excitation, and a modular Control Barrier Function safety filter enforces cable tautness, swing angle, tilt, and collision constraints with input-to-state safety (ISSf) guarantees---bounding constraint violations under disturbances---provably compatible with the geometric attitude controller. 
+Beyond performance and stability, the proposed architecture systematically mitigates dominant failure modes in cooperative transport—including loss of thrust, cable slack or rupture, collision risk, and environmental disturbances—through layered estimation, control, and constraint enforcement mechanisms inspired by established safety engineering practices.
+The framework is validated in a high-fidelity Drake-based simulation incorporating flexible bead-chain cable dynamics, onboard sensor models (IMU, GPS, barometer) with Error-State Kalman Filter fusion, and Dryden wind turbulence. The decentralized architecture achieves 22.9\,cm payload tracking RMSE, maintains safety constraints within ISSf margins, and requires less than 1\,MFLOP/s per agent, demonstrating feasibility for embedded deployment.
 \end{abstract}
 
 \section{Introduction}
 \label{Sec:Introduction}
 \subfile{./Sections/Section_I_Introduction}
+
+\section{Related Work}
+\label{Sec:Related_Work}
+\subfile{./Sections/Section_I.1_Related_Work}
+
+\section{Contributions}
+\label{Sec:Contributions}
+\subfile{./Sections/Section_I.2_Contributions}
 
 \section{System Modeling}
 \label{Sec:System_Modeling}
@@ -123,6 +133,8 @@ We present the Geometric Position and Attitude Control (GPAC) architecture for d
 \section{GPAC Control Architecture}
 \label{Sec:GPAC_Control_Architecture}
 \subfile{./Sections/Section_III_GPAC_Control_Architecture}
+
+
 
 \section{Decentralized Adaptive Estimation}
 \label{Sec:Decentralized_Adaptive_Estimation}
@@ -140,9 +152,13 @@ We present the Geometric Position and Attitude Control (GPAC) architecture for d
 \label{Sec:Results}
 \subfile{./Sections/Section_VII_Results}
 
+\section{Safety-Inspired Design and Assurance-Oriented Control Architecture}
+\label{Sec:Safety-Inspired_Design_and_Assurance-Oriented_Control_Architecture}
+\subfile{./Sections/Section_VIII_Safety_Inspired}
+
 \section{Conclusion}
 \label{Sec:Conclusion}
-\subfile{./Sections/Section_VIII_Conclusion}
+\subfile{./Sections/Section_IX_Conclusion}
 
 \bibliographystyle{IEEEtran}
 \bibliography{./References/References.bib}

@@ -1,4 +1,9 @@
-This paper presented the Geometric Position and Attitude Control (GPAC) architecture for decentralized cooperative aerial transport via flexible cable suspensions. The four-layer hierarchical controller operates on the full $\mathrm{SE}(3) \times (\mathbb{S}^2)^N$ configuration manifold, and each of the $N$~quadrotors runs an identical control and estimation stack using only local sensor measurements and the cable connecting it to the payload. Three key contributions were validated:
+This paper presented the Geometric Position and Attitude Control (GPAC) architecture for decentralized cooperative aerial transport via flexible cable suspensions. The four-layer hierarchical controller operates on the full $\mathrm{SE}(3) \times (\mathbb{S}^2)^N$ configuration manifold, and each of the $N$~quadrotors runs an identical control and estimation stack using only local sensor measurements and the cable connecting it to the payload. 
+Beyond nominal performance, the proposed architecture exhibits systematic robustness to dominant failure modes encountered in cooperative transport. Adaptive mass estimation mitigates payload uncertainty and partial thrust degradation, the bead-chain cable model and CBF layer regulate slack and tension anomalies, collision barriers prevent loss-of-separation events, and disturbance observers attenuate environmental perturbations. Viewed collectively, these mechanisms provide a structured mitigation of risks commonly identified in failure-mode-oriented analyses.
+
+This perspective highlights how stability certificates, adaptive learning, and constraint enforcement can jointly support safety-relevant behavior without compromising decentralized operation. Rather than treating safety as an external supervisory function, GPAC integrates hazard mitigation directly into the control architecture.
+
+Three key contributions were validated:
 
 \begin{enumerate}
   \item A concurrent learning adaptive law enables each drone to independently estimate its payload share $\hat{\theta}_i \to m_L/N$ without persistent excitation, converging in approximately 8\,s and improving tracking by 33\% over gradient-only adaptation.
