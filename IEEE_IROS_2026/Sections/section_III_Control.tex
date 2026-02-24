@@ -1,10 +1,6 @@
 % !TEX root = ../Main.tex
 The GPAC framework is a four-layer hierarchical controller that assigns each physical degree of freedom to a control layer operating at a progressively higher bandwidth (Fig.~\ref{fig:architecture}). Each agent~$i$ receives only: (i)~a shared reference trajectory~$p_d(t)$ (broadcast before flight), (ii)~its own IMU/GPS/barometer measurements, and (iii)~local cable tension $T_i$ and direction $q_i$. For the collision avoidance barrier, neighbor positions are obtained via GPS broadcast at 10\,Hz. No payload state, no other agent's cable state, and no centralized coordinator are required.
 
-\begin{remark}[Per-agent sensing and communication]\label{rem:assumptions}
-Each drone measures: IMU (200\,Hz), GPS (10\,Hz), barometer (25\,Hz), cable tension $T_i$ via load cell ($\sigma_T = 0.5$\,N), cable direction $q_i$ via 2-axis encoder ($\sigma_q = 0.02$\,rad). Communication is limited to: (d)~a shared precomputed trajectory $p_d(t)$, and (e)~neighbor GPS positions (10\,Hz) for collision avoidance only. No payload-mounted sensors, no centralized estimator, and no cable state or adaptive parameter exchange are needed.
-\end{remark}
-
 \begin{figure}[t]
 \centering
 \resizebox{0.92\columnwidth}{!}{%

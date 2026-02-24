@@ -21,13 +21,6 @@ with $T_{\text{conf}} = 20$\,N. When the cable is slack, the measurement varianc
 
 With a single cable, load position is observable only along the cable direction; tangential components depend on prediction. This fundamental limitation means the decentralized estimator (49.5\,cm RMSE) is $4\times$ worse than a centralized baseline (12.4\,cm) that fuses all $N$ cable constraints but requires ${\sim}29$\,kbps inter-agent bandwidth.
 
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=\columnwidth]{Figures/fig_centralized_vs_decentralized.png}
-  \caption{Decentralized vs.\ centralized load estimation error over time. The decentralized single-cable estimator (orange, 49.5\,cm RMSE) exhibits persistent error due to limited geometric observability, while the centralized N-cable fusion (blue, 12.4\,cm RMSE) achieves $4\times$ lower error but requires 28.8\,kbps inter-agent bandwidth.}
-  \label{fig:centralized_vs_decentralized}
-\end{figure}
-
 \subsection{Adaptive Payload Mass Estimation}
 
 From the per-cable vertical force equilibrium of~\eqref{eq:payload}, each drone constructs a scalar parametric model:
@@ -72,6 +65,6 @@ independently of online excitation. Under bounded modeling error $|\varepsilon_i
 With $V_\theta = \tilde{\theta}^2/(2\gamma)$, the concurrent learning term gives $\dot{V}_\theta \leq -\gamma\rho\Sigma_Y\tilde{\theta}^2$; Gr\"{o}nwall's inequality yields~\eqref{eq:cl_conv}. Bounded $\varepsilon_i$ introduces a residual limiting convergence to the UUB ball.
 \end{proof}
 
-\begin{remark}[Implicit coordination and uncertainty mitigation]
-Three adaptations distinguish this from the standard formulation in~\cite{chowdhary2010concurrent}: (i)~the scalar regressor~\eqref{eq:regressor} is extracted from coupled multi-body dynamics using only local cable measurements, avoiding full system models or inter-agent communication; (ii)~the tension-confidence factor~\eqref{eq:tconf} prevents corruption during slack-to-taut transitions; (iii)~convergence~\eqref{eq:cl_conv} holds independently per agent, yet $\sum_i \hat{\theta}_i \to m_L$ provides correct collective force~\eqref{eq:force_convergence} without any consensus protocol. From a safety perspective, each agent's independent estimation also mitigates common-cause failures: a corrupted mass estimate on one drone does not propagate to others, and the remaining agents continue to provide their correct force shares.
+\begin{remark}[Adaptations from~\cite{chowdhary2010concurrent}]
+The scalar regressor~\eqref{eq:regressor} uses only local cable measurements (no full system model), the tension-confidence factor~\eqref{eq:tconf} prevents corruption during slack-to-taut transitions, and per-agent convergence~\eqref{eq:cl_conv} yields correct collective force~\eqref{eq:force_convergence} without consensus---while also isolating estimation faults to individual agents.
 \end{remark}

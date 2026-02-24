@@ -56,24 +56,7 @@ The concurrent learning mass estimator converges to $\hat{\theta}_i \approx m_L/
 
 \subsection{Safety Constraint Satisfaction}
 
-Table~\ref{tab:safety} reports constraint enforcement. The cable angle constraint is the most frequently active (1.7\% of time), with brief excursions to $45.5 \pm 2.2^\circ$ (mean max across seeds) during aggressive cornering (worst case: $49.1^\circ$, seed~3). This observed ${\sim}11$--$15^\circ$ overshoot above the nominal $\theta_{\max} = 34.4^\circ$ limit is \emph{quantitatively consistent} with the ISSf steady-state bound~\eqref{eq:issf_bound}: for $\alpha_\theta = 2.0$ and the measured ESO disturbance $\bar{d} \approx 5$\,m/s$^2$, the predicted margin is $(\mu_{\text{base}} + \kappa_d\bar{d})/\alpha_\theta = (2.0 + 1.5 \times 5)/2.0 = 4.75$\,m/s$^2$, corresponding to ${\sim}15^\circ$ angular allowance. All observed excursions lie within this predicted envelope across all seeds, validating that the ISSf framework provides a meaningful (not merely theoretical) safety bound. The tilt constraint ($\phi_{\max} = 28.6^\circ$) is never violated in any seed (max $25.0 \pm 0.4^\circ$, ${\sim}3.6^\circ$ margin), confirming that the horizontal force scaling is effective. Minimum post-pickup tension across seeds is $1.1 \pm 0.3$\,N (briefly below $T_{\min} = 2.0$\,N for ${\sim}12$ samples per run), recovered within 0.1\,s. The CBF is active only 1.7--3.2\% of the time, concentrated in smooth bursts during cornering, and increases tracking RMSE by less than 2\% when active.
-
-\begin{table}[t]
-  \centering
-  \caption{Safety constraint summary.}
-  \label{tab:safety}
-  \begin{tabular}{@{}lccc@{}}
-    \toprule
-    \textbf{Constraint} & \textbf{Limit} & \textbf{Observed} & \textbf{Violation} \\
-    \midrule
-    Cable tautness (low) & $\geq 2.0$\,N & 1.52\,N & 0.2\% \\
-    Cable tautness (up) & $\leq 60.0$\,N & 26.3\,N & None \\
-    Cable angle & $\leq 34.4^\circ$ & $48.1^\circ$ & 1.7\% \\
-    Quadrotor tilt & $\leq 28.6^\circ$ & $25.1^\circ$ & None \\
-    Swing rate & $\leq 1.5$\,rad/s & 1.6\,rad/s & Brief \\
-    \bottomrule
-  \end{tabular}
-\end{table}
+Table~\ref{tab:failure_modes} consolidates hazard-to-mitigation mapping with constraint enforcement. The cable angle CBF is the most frequently active (1.7\% of time), with excursions to $48.1^\circ$ consistent with the ISSf bound~\eqref{eq:issf_bound}: for $\alpha_\theta = 2.0$ and measured $\bar{d} \approx 5$\,m/s$^2$, the predicted margin $(\mu_{\text{base}} + \kappa_d\bar{d})/\alpha_\theta \approx 4.75$\,m/s$^2$ corresponds to ${\sim}15^\circ$ allowance. The tilt constraint is never violated ($25.1^\circ$ max vs.\ $28.6^\circ$ limit). The CBF is active only 1.7--3.2\% of the time and increases tracking RMSE by less than 2\%.
 
 \subsection{Ablation Studies and Computational Cost}
 
@@ -124,25 +107,22 @@ The asymmetric cable lengths produce unequal load sharing during steady-state fl
   \label{fig:cable_tensions}
 \end{figure}
 
-\subsection{Failure Mode Coverage}
-
-Table~\ref{tab:failure_modes} maps each transport hazard to its mitigation and measured performance.
-
 \begin{table}[t]
   \centering
-  \caption{Failure mode coverage: hazard-to-mitigation mapping with measured performance.}
+  \caption{Hazard-to-mitigation mapping with constraint limits and measured performance.}
   \label{tab:failure_modes}
-  \begin{tabular}{@{}lll@{}}
+  \begin{tabular}{@{}llccc@{}}
     \toprule
-    \textbf{Failure Mode} & \textbf{Mitigation} & \textbf{Measured} \\
+    \textbf{Hazard} & \textbf{Mitigation} & \textbf{Limit} & \textbf{Observed} & \textbf{Active} \\
     \midrule
-    Payload mass unknown & CL estimation & $\hat{\theta} \to m_L/N$ in 8\,s \\
-    Wind disturbance & ESO rejection & +43\% RMSE without \\
-    Cable slack/overload & CBF tension & $T \in [1.1, 24.9]$\,N (mean) \\
-    Payload oscillation & $\Sph^2$ anti-swing & $\Psi_q < 0.15$ steady \\
-    Excessive tilt & CBF tilt limit & $\phi \leq 25.0 \pm 0.4^\circ$ \\
-    Inter-agent collision & CBF separation & $d_{ij} \geq 1.04$\,m \\
-    Sensor noise/dropout & ESKF fusion & $6.9 \pm 0.03$\,cm RMSE \\
+    Mass unknown & CL estimation & --- & $\hat{\theta} \!\to\! m_L/N$, 8\,s & --- \\
+    Wind disturb. & ESO feedfwd & --- & +43\% w/o & --- \\
+    Cable slack/overload & CBF tension & {[2, 60]\,N} & {[1.5, 26.3]\,N} & 0.2\% \\
+    Cable angle & CBF + anti-swing & $34.4^\circ$ & $48.1^\circ$ & 1.7\% \\
+    Excessive tilt & CBF tilt & $28.6^\circ$ & $25.1^\circ$ & None \\
+    Swing rate & CBF swing & 1.5\,rad/s & 1.6\,rad/s & Brief \\
+    Collision & CBF separation & 0.8\,m & $\geq 1.04$\,m & None \\
+    Sensor noise & ESKF fusion & --- & 6.9\,cm RMSE & --- \\
     \bottomrule
   \end{tabular}
 \end{table}
