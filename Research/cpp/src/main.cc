@@ -26,6 +26,8 @@
 #include <vector>
 #include <string>
 #include <random>
+#include <cstdlib>
+#include <cstring>
 
 #include <Eigen/Core>
 
@@ -64,6 +66,7 @@
 #include "estimation_error_computer.h"
 #include "trajectory_visualizer.h"
 #include "simulation_data_logger.h"
+#include "wind_force_applicator.h"
 
 namespace quad_rope_lift
 {
@@ -105,8 +108,36 @@ namespace quad_rope_lift
         double rope_length;                   ///< Actual rope rest length (sampled) [m]
     };
 
-    int DoMain()
+    int DoMain(int argc, char* argv[])
     {
+        // =========================================================================
+        // Command-Line Arguments (for Monte Carlo batch runs)
+        // =========================================================================
+        // Usage: ./quad_rope_lift [--seed N] [--headless] [--duration T]
+        //   --seed N      : Random seed for rope length sampling (default: 42)
+        //   --headless    : Disable Meshcat visualization (for batch runs)
+        //   --duration T  : Simulation duration in seconds (default: 50.0)
+
+        unsigned int cli_seed = 42;
+        bool headless = false;
+        double cli_duration = 50.0;
+
+        for (int i = 1; i < argc; ++i) {
+            if (std::strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
+                cli_seed = static_cast<unsigned int>(std::atoi(argv[++i]));
+            } else if (std::strcmp(argv[i], "--headless") == 0) {
+                headless = true;
+            } else if (std::strcmp(argv[i], "--duration") == 0 && i + 1 < argc) {
+                cli_duration = std::atof(argv[++i]);
+            } else if (std::strcmp(argv[i], "--help") == 0) {
+                std::cout << "Usage: ./quad_rope_lift [--seed N] [--headless] [--duration T]\n"
+                          << "  --seed N      Random seed (default: 42)\n"
+                          << "  --headless    Disable visualization\n"
+                          << "  --duration T  Simulation duration [s] (default: 50)\n";
+                return 0;
+            }
+        }
+
         // =========================================================================
         // Simulation Parameters
         // =========================================================================
@@ -115,7 +146,7 @@ namespace quad_rope_lift
         const double simulation_time_step = 2e-4; // [s]
 
         // Total simulation duration (extended for figure-8 trajectory)
-        const double simulation_duration = 50.0; // [s]
+        const double simulation_duration = cli_duration; // [s]
 
         // =========================================================================
         // State Estimation Configuration
@@ -124,8 +155,11 @@ namespace quad_rope_lift
         // Enable GPS-based state estimation (false = use ground truth)
         const bool enable_estimation = true;
 
-        // Use estimated state in controller (false = run estimator but use ground truth in controller)
-        // Set to false to test estimator accuracy without feedback effects
+        // Use estimated state in controller (true = close loop through ESKF).
+        // NOTE: The paper's GPAC architecture closes through the ESKF, but main.cc
+        // currently uses the basic QuadcopterLiftController (not the full GPAC stack).
+        // Set to true once the GPAC layers (gpac_load_tracking_controller,
+        // gpac_quadcopter_controller, extended_state_observer) are wired in.
         const bool use_estimated_in_controller = false;
 
         // GPS sensor parameters
@@ -188,8 +222,8 @@ namespace quad_rope_lift
         }
 
         // Random number generator for Gaussian sampling
-        // Use a fixed seed for reproducibility (change seed for different runs)
-        const unsigned int random_seed = 42;  // Change this for different random realizations
+        // Seed configurable via --seed CLI argument for Monte Carlo runs
+        const unsigned int random_seed = cli_seed;
         std::default_random_engine generator(random_seed);
 
         std::cout << "\n========================================" << std::endl;
@@ -733,9 +767,10 @@ namespace quad_rope_lift
         // Connect Systems
         // -------------------------------------------------------------------------
 
-        // Force combiner: 2 inputs per quadcopter (rope + controller)
+        // Force combiner: 3 inputs per quadcopter (controller + rope + wind)
+        // Total inputs: 2*N (controller + rope) + 1 (wind force applicator)
         auto& force_combiner = *builder.AddSystem<ExternallyAppliedSpatialForceMultiplexer>(
-            2 * num_quadcopters);
+            2 * num_quadcopters + 1);
 
         for (int q = 0; q < num_quadcopters; ++q) {
             // Rope system connections (always use ground truth for physics)
@@ -758,6 +793,14 @@ namespace quad_rope_lift
                                 controllers[q]->get_estimated_state_input_port());
             }
         }
+
+        // Wind force applicator: converts wind velocities to aerodynamic drag
+        auto& wind_force = *builder.AddSystem<WindForceApplicator>(
+            quadcopter_bodies, payload_body, num_quadcopters);
+        builder.Connect(wind_system.get_wind_velocities_output_port(),
+                        wind_force.get_wind_input_port());
+        builder.Connect(wind_force.get_forces_output_port(),
+                        force_combiner.get_input_port(2 * num_quadcopters));
 
         // Apply combined forces to plant
         builder.Connect(force_combiner.get_output_port(),
@@ -805,12 +848,15 @@ namespace quad_rope_lift
         }
 
         // -------------------------------------------------------------------------
-        // Set Up Visualization
+        // Set Up Visualization (skipped in headless mode)
         // -------------------------------------------------------------------------
 
-        auto meshcat = std::make_shared<Meshcat>();
-        meshcat->Delete();
-        MeshcatVisualizer<double>::AddToBuilder(&builder, scene_graph, meshcat);
+        std::shared_ptr<Meshcat> meshcat;
+        if (!headless) {
+            meshcat = std::make_shared<Meshcat>();
+            meshcat->Delete();
+            MeshcatVisualizer<double>::AddToBuilder(&builder, scene_graph, meshcat);
+        }
 
         // Add rope polyline visualizers (one per rope)
         std::vector<RopeVisualizer*> rope_visualizers;
@@ -824,73 +870,78 @@ namespace quad_rope_lift
             Rgba(0.8, 0.2, 0.8, 1.0),  // Magenta
         };
 
-        for (int q = 0; q < num_quadcopters; ++q) {
-            std::vector<std::pair<const RigidBody<double>*, Eigen::Vector3d>> rope_path_points;
-            rope_path_points.reserve(num_rope_beads + 2);
-
-            rope_path_points.emplace_back(quadcopter_bodies[q], quad_attachment_offset);
-            for (const auto* bead : bead_chains[q]) {
-                rope_path_points.emplace_back(bead, Eigen::Vector3d::Zero());
-            }
-            rope_path_points.emplace_back(&payload_body, quad_configs[q].payload_attachment);
-
-            const std::string rope_path = "rope_line_" + std::to_string(q);
-            const Rgba& color = rope_colors[q % rope_colors.size()];
-
-            auto& rope_visualizer = *builder.AddSystem<RopeVisualizer>(
-                plant, rope_path_points, meshcat, rope_path, 3.0, color);
-            builder.Connect(plant.get_state_output_port(),
-                            rope_visualizer.get_plant_state_input_port());
-            rope_visualizers.push_back(&rope_visualizer);
-        }
-
-        // -------------------------------------------------------------------------
-        // Add Trajectory Visualizer (Reference Path + Actual Trails)
-        // -------------------------------------------------------------------------
-
-        // Collect drone body indices for visualization
+        // Collect drone body indices (needed for logging regardless of visualization)
         std::vector<drake::multibody::BodyIndex> drone_body_indices;
         for (int q = 0; q < num_quadcopters; ++q) {
             drone_body_indices.push_back(quadcopter_bodies[q]->index());
         }
 
-        // Configure trajectory visualization
-        tether_lift::TrajectoryVisualizer::Params traj_vis_params;
-        traj_vis_params.show_reference_trajectory = true;
-        traj_vis_params.reference_color = drake::geometry::Rgba(0.0, 1.0, 0.0, 0.8);  // Green
-        traj_vis_params.reference_line_width = 5.0;
-        traj_vis_params.show_trails = true;
-        traj_vis_params.trail_update_period = 0.05;
-        traj_vis_params.load_trail_color = drake::geometry::Rgba(1.0, 0.5, 0.0, 0.9);  // Orange
-        traj_vis_params.load_trail_width = 4.0;
-        traj_vis_params.load_max_trail_points = 2000;
-        traj_vis_params.drone_max_trail_points = 1000;
+        tether_lift::TrajectoryVisualizer* trajectory_visualizer_ptr = nullptr;
 
-        auto& trajectory_visualizer = *builder.AddSystem<tether_lift::TrajectoryVisualizer>(
-            plant,
-            meshcat,
-            payload_body.index(),
-            drone_body_indices,
-            traj_vis_params);
-        builder.Connect(plant.get_state_output_port(),
-                        trajectory_visualizer.get_plant_state_input());
+        if (!headless) {
+            for (int q = 0; q < num_quadcopters; ++q) {
+                std::vector<std::pair<const RigidBody<double>*, Eigen::Vector3d>> rope_path_points;
+                rope_path_points.reserve(num_rope_beads + 2);
 
-        // -------------------------------------------------------------------------
-        // Add Tension Plotter for Real-Time Visualization
-        // -------------------------------------------------------------------------
+                rope_path_points.emplace_back(quadcopter_bodies[q], quad_attachment_offset);
+                for (const auto* bead : bead_chains[q]) {
+                    rope_path_points.emplace_back(bead, Eigen::Vector3d::Zero());
+                }
+                rope_path_points.emplace_back(&payload_body, quad_configs[q].payload_attachment);
 
-        auto& tension_plotter = *builder.AddSystem<TensionPlotter>(
-            meshcat,
-            num_quadcopters,
-            rope_colors,
-            10.0,   // time_window [s]
-            load_per_rope * 2.5,  // max_tension [N] - 2.5x expected for headroom
-            0.05);  // update_period [s]
+                const std::string rope_path = "rope_line_" + std::to_string(q);
+                const Rgba& color = rope_colors[q % rope_colors.size()];
 
-        // Connect tension signals from each rope system to the plotter
-        for (int q = 0; q < num_quadcopters; ++q) {
-            builder.Connect(rope_systems[q]->get_tension_output_port(),
-                            tension_plotter.get_tension_input_port(q));
+                auto& rope_visualizer = *builder.AddSystem<RopeVisualizer>(
+                    plant, rope_path_points, meshcat, rope_path, 3.0, color);
+                builder.Connect(plant.get_state_output_port(),
+                                rope_visualizer.get_plant_state_input_port());
+                rope_visualizers.push_back(&rope_visualizer);
+            }
+
+            // -------------------------------------------------------------------------
+            // Add Trajectory Visualizer (Reference Path + Actual Trails)
+            // -------------------------------------------------------------------------
+
+            // Configure trajectory visualization
+            tether_lift::TrajectoryVisualizer::Params traj_vis_params;
+            traj_vis_params.show_reference_trajectory = true;
+            traj_vis_params.reference_color = drake::geometry::Rgba(0.0, 1.0, 0.0, 0.8);
+            traj_vis_params.reference_line_width = 5.0;
+            traj_vis_params.show_trails = true;
+            traj_vis_params.trail_update_period = 0.05;
+            traj_vis_params.load_trail_color = drake::geometry::Rgba(1.0, 0.5, 0.0, 0.9);
+            traj_vis_params.load_trail_width = 4.0;
+            traj_vis_params.load_max_trail_points = 2000;
+            traj_vis_params.drone_max_trail_points = 1000;
+
+            auto& trajectory_visualizer = *builder.AddSystem<tether_lift::TrajectoryVisualizer>(
+                plant,
+                meshcat,
+                payload_body.index(),
+                drone_body_indices,
+                traj_vis_params);
+            builder.Connect(plant.get_state_output_port(),
+                            trajectory_visualizer.get_plant_state_input());
+            trajectory_visualizer_ptr = &trajectory_visualizer;
+
+            // -------------------------------------------------------------------------
+            // Add Tension Plotter for Real-Time Visualization
+            // -------------------------------------------------------------------------
+
+            auto& tension_plotter = *builder.AddSystem<TensionPlotter>(
+                meshcat,
+                num_quadcopters,
+                rope_colors,
+                10.0,   // time_window [s]
+                load_per_rope * 2.5,  // max_tension [N] - 2.5x expected for headroom
+                0.05);  // update_period [s]
+
+            // Connect tension signals from each rope system to the plotter
+            for (int q = 0; q < num_quadcopters; ++q) {
+                builder.Connect(rope_systems[q]->get_tension_output_port(),
+                                tension_plotter.get_tension_input_port(q));
+            }
         }
 
         // -------------------------------------------------------------------------
@@ -1135,7 +1186,9 @@ namespace quad_rope_lift
             }
         }
 
-        trajectory_visualizer.DrawReferenceTrajectory(load_reference_waypoints);
+        if (trajectory_visualizer_ptr) {
+            trajectory_visualizer_ptr->DrawReferenceTrajectory(load_reference_waypoints);
+        }
 
         std::cout << "Load reference waypoints:" << std::endl;
         for (size_t i = 0; i < load_reference_waypoints.size(); ++i) {
@@ -1193,11 +1246,15 @@ namespace quad_rope_lift
         // Run Simulation
         // -------------------------------------------------------------------------
 
-        simulator.set_target_realtime_rate(1.0);
+        if (!headless) {
+            simulator.set_target_realtime_rate(1.0);
+        } else {
+            simulator.set_target_realtime_rate(0.0);  // Run as fast as possible
+        }
 
-        // Enable MeshCat recording for video export
-        const bool enable_recording = true;
-        if (enable_recording) {
+        // Enable MeshCat recording for video export (only in interactive mode)
+        const bool enable_recording = !headless;
+        if (enable_recording && meshcat) {
             meshcat->StartRecording();
         }
 
@@ -1206,7 +1263,10 @@ namespace quad_rope_lift
         std::cout << "  Payload mass: " << payload_mass << " kg\n";
         std::cout << "  Load per quadcopter: " << load_per_rope / gravity << " kg\n";
         std::cout << "  Duration: " << simulation_duration << " s\n";
-        std::cout << "Open Meshcat at: http://localhost:7000\n\n";
+        std::cout << "  Random seed: " << random_seed << "\n";
+        std::cout << "  Headless: " << (headless ? "YES" : "NO") << "\n";
+        if (!headless) std::cout << "Open Meshcat at: http://localhost:7000\n";
+        std::cout << "\n";
 
         // Run in chunks to show progress
         const double progress_interval = 0.1;
@@ -1224,7 +1284,7 @@ namespace quad_rope_lift
         }
 
         // Stop recording and export
-        if (enable_recording) {
+        if (enable_recording && meshcat) {
             meshcat->StopRecording();
             meshcat->PublishRecording();  // Makes it playable in browser
 
@@ -1307,7 +1367,7 @@ namespace quad_rope_lift
 
 } // namespace quad_rope_lift
 
-int main()
+int main(int argc, char* argv[])
 {
-    return quad_rope_lift::DoMain();
+    return quad_rope_lift::DoMain(argc, argv);
 }

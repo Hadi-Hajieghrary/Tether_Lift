@@ -1,3 +1,4 @@
+% !TEX root = ../Main.tex
 Each quadrotor runs three estimators in a strictly downward cascade---no payload, cable, or adaptive-parameter states are exchanged between agents: (i)~an ESKF for navigation, (ii)~a geometric load-state filter, and (iii)~a concurrent learning mass estimator. The separation of timescales---navigation at 200\,Hz versus load/mass estimation at 50\,Hz---allows each layer to treat its inputs as quasi-static, and upstream errors propagate in one direction only, simplifying the stability analysis.
 
 \subsection{Navigation: Error-State Kalman Filter}
@@ -20,6 +21,13 @@ with $T_{\text{conf}} = 20$\,N. When the cable is slack, the measurement varianc
 
 With a single cable, load position is observable only along the cable direction; tangential components depend on prediction. This fundamental limitation means the decentralized estimator (49.5\,cm RMSE) is $4\times$ worse than a centralized baseline (12.4\,cm) that fuses all $N$ cable constraints but requires ${\sim}29$\,kbps inter-agent bandwidth.
 
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{Figures/fig_centralized_vs_decentralized.png}
+  \caption{Decentralized vs.\ centralized load estimation error over time. The decentralized single-cable estimator (orange, 49.5\,cm RMSE) exhibits persistent error due to limited geometric observability, while the centralized N-cable fusion (blue, 12.4\,cm RMSE) achieves $4\times$ lower error but requires 28.8\,kbps inter-agent bandwidth.}
+  \label{fig:centralized_vs_decentralized}
+\end{figure}
+
 \subsection{Adaptive Payload Mass Estimation}
 
 From the per-cable vertical force equilibrium of~\eqref{eq:payload}, each drone constructs a scalar parametric model:
@@ -27,7 +35,7 @@ From the per-cable vertical force equilibrium of~\eqref{eq:payload}, each drone 
   \underbrace{T_i \cos\phi_i}_{\varphi_i} = \underbrace{\norm{g\,e_3 + \hat{a}_L}}_{Y_i} \cdot \underbrace{\frac{m_L}{N}}_{\theta} + \varepsilon_i,
   \label{eq:regressor}
 \end{equation}
-where $\phi_i = \arccos(-n_{i,z})$ is the cable angle from vertical, $\hat{a}_L$ is the load acceleration (estimated via numerical differentiation with a first-order low-pass filter, $\tau_f = 0.1$\,s), and $\varepsilon_i$ captures modeling error from non-equilibrium dynamics and cable sag. The approximation is exact for vertical cables under quasi-static conditions; during aggressive maneuvering, the error is absorbed into the UUB convergence bound.
+where $\phi_i = \arccos(-n_{i,z})$ is the cable angle from vertical, $\hat{a}_L$ is the load acceleration (estimated via numerical differentiation with a first-order low-pass filter, $\tau_f = 0.1$\,s), and $\varepsilon_i$ captures modeling error from non-equilibrium dynamics, cable sag, and asymmetric cable lengths. When cables have unequal lengths, the true per-cable vertical force $T_i\cos\phi_i$ deviates from $m_Lg/N$; this asymmetry enters $\varepsilon_i$ and the UUB bound increases accordingly. In simulation, 19\% cable asymmetry yields steady-state estimation error $<$0.1\,kg per agent.
 
 \textit{Implicit coordination mechanism.}
 The regressor~\eqref{eq:regressor} provides the formal basis for the implicit coordination claimed in~\eqref{eq:force_convergence}. Define $u := g\,e_3 + \ddot{p}_L^d$ as in Section~\ref{sec:intro}. Each drone computes $u$ identically from the shared reference, and its feedforward force is $F_{\text{ff},i} = \hat{\theta}_i \cdot u$. From~\eqref{eq:regressor}, as $\hat{\theta}_i \to m_L/N$ independently per agent, the total feedforward force satisfies
@@ -52,6 +60,13 @@ Provided $\Sigma_Y = \frac{1}{M}\sum_j Y_j^2 > 0$ (at least one informative samp
 \end{equation}
 independently of online excitation. Under bounded modeling error $|\varepsilon_i| \leq \bar{\varepsilon}$, convergence is uniformly ultimately bounded: $|\tilde{\theta}| \leq \bar{\varepsilon}/(\rho\,\Sigma_Y)$.
 \end{proposition}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{Figures/fig_mass_convergence.png}
+  \caption{Adaptive mass estimation convergence. \textit{Top:} Per-drone concurrent learning estimates $\hat{\theta}_i \to m_L/N = 1.0$\,kg, converging within $\sim$8\,s. \textit{Bottom:} Comparison with gradient-only adaptation, which requires $\sim$22\,s and exhibits larger steady-state oscillation.}
+  \label{fig:mass_convergence}
+\end{figure}
 
 \begin{proof}
 With $V_\theta = \tilde{\theta}^2/(2\gamma)$, the concurrent learning term gives $\dot{V}_\theta \leq -\gamma\rho\Sigma_Y\tilde{\theta}^2$; Gr\"{o}nwall's inequality yields~\eqref{eq:cl_conv}. Bounded $\varepsilon_i$ introduces a residual limiting convergence to the UUB ball.

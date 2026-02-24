@@ -1,7 +1,4 @@
-% ================================================================
-%  GPAC: Decentralized Geometric Cooperative Aerial Transport
-%  7-page IEEE Conference Paper
-% ================================================================
+% !TEX root = Main.tex
 \documentclass[conference]{IEEEtran}
 
 % ======================== PACKAGES ==============================
@@ -42,9 +39,7 @@
 \newcommand{\hatmap}[1]{\widehat{#1}}
 
 % ======================== TITLE =================================
-\title{Decentralized Geometric Control for Cooperative\\
-Aerial Transport with Adaptive Estimation\\
-and Safety Guarantees}
+\title{Decentralized Geometric Control for Cable-Suspended Payload Transport with Adaptive Mass Estimation}
 
 \author{
   \IEEEauthorblockN{Author Names Omitted for Review}
@@ -58,7 +53,7 @@ and Safety Guarantees}
 
 % ======================== ABSTRACT ==============================
 \begin{abstract}
-We present the Geometric Position and Attitude Control (GPAC) architecture for decentralized cooperative aerial transport via flexible cable suspensions. Each of $N$~quadrotors runs an identical four-layer hierarchical controller on $\SEthree \times (\Sph^2)^N$ with no knowledge of $N$ or $m_L$, no centralized coordinator, and no exchange of payload, cable, or adaptive-parameter states---only neighbor GPS positions (10\,Hz) for collision avoidance. A concurrent learning adaptive law enables each drone to independently estimate its payload share $\hat{\theta}_i \to m_L/N$ from local cable measurements---without persistent excitation---such that $\sum_i \hat{\theta}_i \cdot u \to m_L \cdot u$. A modular CBF safety filter enforces cable tautness, angle, tilt, and collision constraints with input-to-state safety (ISSf) guarantees, and we prove that CBF-induced force modifications preserve the almost-global exponential stability of the geometric attitude controller on~$\SOthree$. Validated in a high-fidelity Drake simulation with bead-chain cables, 15-state ESKF, and Dryden wind, the architecture achieves 22.9\,cm tracking RMSE at under 1\,MFLOP/s per agent.
+Cooperative aerial transport---where multiple quadrotors jointly carry a payload via cable suspensions---promises extended payload capacity and fault tolerance, but demands controllers that respect nonlinear manifold geometry, operate without centralized coordination, and systematically enforce safety constraints. We present GPAC (Geometric Position and Attitude Control), a four-layer hierarchical architecture enabling $N$~quadrotors to transport a cable-suspended payload with \emph{zero inter-agent state exchange}. The key insight is \emph{implicit coordination}: each drone independently estimates its payload mass share $\hat{\theta}_i \to m_L/N$ from local cable measurements using concurrent learning, causing the combined forces to automatically converge to the correct total $\sum_i F_i \to m_L \cdot u$---without knowledge of $N$, $m_L$, or any peer's state. Operating directly on $\SEthree \times (\Sph^2)^N$ without linearization, GPAC integrates: (i)~geometric position/attitude control with anti-swing regulation, (ii)~an extended state observer for wind rejection, (iii)~concurrent learning mass estimation converging in ${\sim}8$\,s without persistent excitation, and (iv)~a control barrier function (CBF) safety filter enforcing cable tautness, angle limits, tilt bounds, and collision avoidance with input-to-state safety (ISSf) guarantees. We prove that CBF-induced modifications preserve almost-global exponential attitude stability on~$\SOthree$. Validated in high-fidelity Drake simulation with flexible bead-chain cables, 15-state ESKF sensor fusion, and Dryden turbulence, GPAC achieves $23.5 \pm 1.5$\,cm tracking RMSE (3.3\% of workspace diagonal) at under 1\,MFLOP/s per agent---demonstrating that geometric rigor, full decentralization, and certified safety can coexist.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -66,39 +61,29 @@ Cooperative aerial transport, geometric control, decentralized systems, adaptive
 \end{IEEEkeywords}
 
 % ======================== SECTIONS ==============================
-
+\section{Introduction}\label{sec:intro}
 \input{./Sections/section_I_Introduction}
-\section{Introduction}
-\label{sec:intro}
 
-
+\section{System Modeling}\label{sec:modeling}
 \input{./Sections/section_II_Modeling}
-\section{System Modeling}
-\label{sec:modeling}
 
-
+\section{GPAC Control Architecture}\label{sec:control}
 \input{./Sections/section_III_Control}
-\section{GPAC Control Architecture}
-\label{sec:control}
 
+\section{Decentralized Adaptive Estimation}\label{sec:estimation}
 \input{./Sections/section_IV_Estimation}
-\section{Decentralized Adaptive Estimation}
-\label{sec:estimation}
 
+\section{CBF Safety Filter}\label{sec:safety}
 \input{./Sections/section_V_CBF}
-\section{CBF Safety Filter}
-\label{sec:safety}
 
+\section{Simulation Results}\label{sec:results}
 \input{./Sections/section_VI_Results}
-\section{Simulation Results}
-\label{sec:results}
 
+\section{Conclusion}\label{sec:conclusion}
 \input{./Sections/section_VII_Conclusion}
-\section{Conclusion}
-\label{sec:conclusion}
 
 % ======================== REFERENCES ============================
 \bibliographystyle{IEEEtran}
-\bibliography{references}
+\bibliography{./References/References}
 
 \end{document}

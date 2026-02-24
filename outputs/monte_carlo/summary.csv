@@ -1,0 +1,11 @@
+seed,output_dir,status,runtime_s
+1,/workspaces/Tether_Lift/outputs/monte_carlo/seed_001,ok,344
+2,/workspaces/Tether_Lift/outputs/monte_carlo/seed_002,ok,371
+3,/workspaces/Tether_Lift/outputs/monte_carlo/seed_003,ok,325
+4,/workspaces/Tether_Lift/outputs/monte_carlo/seed_004,ok,322
+5,/workspaces/Tether_Lift/outputs/monte_carlo/seed_005,ok,329
+6,/workspaces/Tether_Lift/outputs/monte_carlo/seed_006,ok,350
+7,/workspaces/Tether_Lift/outputs/monte_carlo/seed_007,ok,425
+8,/workspaces/Tether_Lift/outputs/monte_carlo/seed_008,ok,344
+9,/workspaces/Tether_Lift/outputs/monte_carlo/seed_009,ok,371
+10,/workspaces/Tether_Lift/outputs/monte_carlo/seed_010,ok,339

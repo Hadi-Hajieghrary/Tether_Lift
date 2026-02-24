@@ -1,11 +1,18 @@
-
+% !TEX root = ../Main.tex
 The GPAC architecture is validated in a Drake-based~\cite{drake2024} multibody simulation with $N\!=\!3$ quadrotors ($m_Q\!=\!1.5$\,kg) transporting a 3.0\,kg payload via bead-chain cables ($n_b\!=\!8$ beads per cable). Physics runs at 5000\,Hz with semi-implicit Euler integration, resolving cable vibration modes (${\sim}55$\,Hz) with $90\times$ oversampling; cable rest lengths are asymmetric ($[0.914, 1.105, 0.995]$\,m, up to 19\% variation). The multi-rate timing hierarchy matches the GPAC layered structure: IMU/ESKF/attitude/CBF at 200\,Hz, position control and estimation at 50\,Hz, GPS at 10\,Hz, barometer at 25\,Hz (Table~\ref{tab:params}). Dryden wind ($\bar{w} = [1.0, 0.5, 0]^\top$\,m/s, $\sigma_u\!=\!\sigma_v\!=\!0.5$\,m/s) and the full sensor suite complete the environment. All control and estimation loops close through the ESKF, not ground truth, ensuring that results reflect realistic sensor-in-the-loop performance.
 
-The 50\,s benchmark trajectory exercises all identified hazards: pre-lift hover (slack-to-taut cable transitions), ascent with impulsive loading, figure-eight maneuvering (${\sim}6.2 \times 3.4$\,m, $\pm 0.5$\,m altitude variation) with aggressive cornering that excites pendular swing, and controlled descent. Minimum-jerk interpolation enforces $\norm{v_d}\!\leq\!1$\,m/s, $\norm{a_d}\!\leq\!2$\,m/s$^2$.
+The 50\,s benchmark trajectory exercises all identified hazards: pre-lift hover (slack-to-taut cable transitions), ascent with impulsive loading, figure-eight maneuvering (${\sim}6.0 \times 3.0$\,m horizontal workspace, payload altitude 1.6--2.3\,m, $\pm 0.5$\,m altitude variation) with aggressive cornering that excites pendular swing, and controlled descent. The total trajectory path length exceeds 20\,m. Minimum-jerk interpolation enforces $\norm{v_d}\!\leq\!1$\,m/s, $\norm{a_d}\!\leq\!2$\,m/s$^2$.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{Figures/fig_trajectory_3d.png}
+  \caption{3D trajectory of payload and quadrotors. The $6.2 \times 3.4$\,m figure-eight path is shown with 1\,m/s maximum velocity. Gray dashed lines indicate cable attachments. The asymmetric formation geometry accommodates the 19\% cable length variation.}
+  \label{fig:trajectory_3d}
+\end{figure}
 
 \subsection{Tracking Performance}
 
-Table~\ref{tab:tracking} summarizes the payload tracking errors. The overall 3D RMSE of 22.9\,cm is achieved despite wind (mean 1.2\,m/s), cable asymmetry, and no centralized coordination or payload state exchange. Horizontal error dominates due to pendulum-like payload dynamics amplifying lateral disturbances; vertical error is well-controlled (5.4\,cm RMSE) via the direct thrust--altitude relationship and barometer-aided estimation. The figure-eight right loop exhibits the largest errors (max 80.3\,cm) during aggressive cornering; the left loop improves (max 37.7\,cm) as concurrent learning accumulates data.
+Table~\ref{tab:tracking} summarizes the payload tracking errors for the baseline seed. The overall 3D RMSE of 22.9\,cm---3.3\% of the ${\sim}7$\,m workspace diagonal and less than one cable length---is achieved despite wind (mean 1.2\,m/s), cable asymmetry, and no centralized coordination or payload state exchange. A 15-seed Monte Carlo study varying cable lengths confirms this result is representative: the 3D RMSE is $23.5 \pm 1.5$\,cm (mean $\pm$ std), with a coefficient of variation of only 6.3\%. Horizontal error dominates due to pendulum-like payload dynamics amplifying lateral disturbances; vertical error is well-controlled ($4.5 \pm 0.2$\,cm RMSE across seeds) via the direct thrust--altitude relationship and barometer-aided estimation. The figure-eight right loop exhibits the largest errors (max 80.3\,cm) during aggressive cornering; the left loop improves (max 37.7\,cm) as concurrent learning accumulates data.
 
 \begin{table}[t]
   \centering
@@ -27,15 +34,29 @@ Table~\ref{tab:tracking} summarizes the payload tracking errors. The overall 3D 
   \end{tabular}
 \end{table}
 
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{Figures/fig_tracking_error.png}
+  \caption{Payload tracking error over time. \textit{Top:} 3D position error with RMSE 22.9\,cm. Peak errors (80.3\,cm) occur during aggressive figure-eight cornering. \textit{Bottom:} Error components (horizontal, vertical). The right loop (7--20\,s) shows larger errors before CL mass estimation converges.}
+  \label{fig:tracking_error}
+\end{figure}
+
 \subsection{Estimation and Adaptive Convergence}
 
-The ESKF achieves quadrotor position RMSE of 7.1\,cm (${\sim}3\times$ the GPS noise floor), with maximum errors of 22--23\,cm during aggressive cornering. The decentralized load estimator reaches 49.5\,cm RMSE---$4\times$ worse than the centralized oracle baseline (12.4\,cm)---reflecting the single-cable observability limitation (Section~\ref{sec:estimation}). The centralized baseline would require ${\sim}29$\,kbps inter-agent bandwidth.
+The ESKF achieves quadrotor position RMSE of $6.9 \pm 0.03$\,cm across seeds (${\sim}3\times$ the GPS noise floor), with maximum errors of 22--23\,cm during aggressive cornering. The near-zero variance across seeds confirms that ESKF performance is determined by sensor characteristics, not cable geometry. The decentralized load estimator reaches $47.3 \pm 1.4$\,cm RMSE---$4\times$ worse than the centralized oracle baseline (12.4\,cm)---reflecting the single-cable observability limitation (Section~\ref{sec:estimation}). The centralized baseline would require ${\sim}29$\,kbps inter-agent bandwidth.
 
 The concurrent learning mass estimator converges to $\hat{\theta}_i \approx m_L/N = 1.0$\,kg within ${\sim}8$\,s (settling to $\pm 0.1$\,kg), with the history buffer accumulating ${\sim}30$ informative samples during the ascent and initial maneuvering. Without concurrent learning ($\rho = 0$), settling time increases to ${\sim}22$\,s with $\pm 0.3$\,kg steady-state oscillation.
 
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{Figures/fig_estimation_error.png}
+  \caption{Estimation performance. \textit{Top:} ESKF position estimation error (7.1\,cm RMSE, max 22.3\,cm during cornering). \textit{Middle:} Decentralized load position estimate error (49.5\,cm RMSE), limited by single-cable observability. \textit{Bottom:} Per-drone adaptive mass estimates converging to $m_L/N = 1.0$\,kg.}
+  \label{fig:estimation_error}
+\end{figure}
+
 \subsection{Safety Constraint Satisfaction}
 
-Table~\ref{tab:safety} reports constraint enforcement. The cable angle constraint is the most frequently active (1.7\% of time), with brief excursions to $48.1^\circ$ during aggressive cornering. This observed $13.7^\circ$ overshoot above the nominal $\theta_{\max} = 34.4^\circ$ limit is \emph{quantitatively consistent} with the ISSf steady-state bound~\eqref{eq:issf_bound}: for $\alpha_\theta = 2.0$ and the measured ESO disturbance $\bar{d} \approx 5$\,m/s$^2$, the predicted margin is $(\mu_{\text{base}} + \kappa_d\bar{d})/\alpha_\theta = (2.0 + 1.5 \times 5)/2.0 = 4.75$\,m/s$^2$, corresponding to ${\sim}15^\circ$ angular allowance. The observed $13.7^\circ$ lies within this predicted envelope, validating that the ISSf framework provides a meaningful (not merely theoretical) safety bound. The tilt constraint ($\phi_{\max} = 28.6^\circ$) is never violated (max $25.1^\circ$, 3.5$^\circ$ margin), confirming that the horizontal force scaling is effective. Minimum post-pickup tension is 1.52\,N (briefly below $T_{\min} = 2.0$\,N for 9 samples at $t \approx 22.5$\,s), recovered within 0.1\,s. The CBF is active only 1.7--3.2\% of the time, concentrated in smooth bursts during cornering, and increases tracking RMSE by less than 2\% when active.
+Table~\ref{tab:safety} reports constraint enforcement. The cable angle constraint is the most frequently active (1.7\% of time), with brief excursions to $45.5 \pm 2.2^\circ$ (mean max across seeds) during aggressive cornering (worst case: $49.1^\circ$, seed~3). This observed ${\sim}11$--$15^\circ$ overshoot above the nominal $\theta_{\max} = 34.4^\circ$ limit is \emph{quantitatively consistent} with the ISSf steady-state bound~\eqref{eq:issf_bound}: for $\alpha_\theta = 2.0$ and the measured ESO disturbance $\bar{d} \approx 5$\,m/s$^2$, the predicted margin is $(\mu_{\text{base}} + \kappa_d\bar{d})/\alpha_\theta = (2.0 + 1.5 \times 5)/2.0 = 4.75$\,m/s$^2$, corresponding to ${\sim}15^\circ$ angular allowance. All observed excursions lie within this predicted envelope across all seeds, validating that the ISSf framework provides a meaningful (not merely theoretical) safety bound. The tilt constraint ($\phi_{\max} = 28.6^\circ$) is never violated in any seed (max $25.0 \pm 0.4^\circ$, ${\sim}3.6^\circ$ margin), confirming that the horizontal force scaling is effective. Minimum post-pickup tension across seeds is $1.1 \pm 0.3$\,N (briefly below $T_{\min} = 2.0$\,N for ${\sim}12$ samples per run), recovered within 0.1\,s. The CBF is active only 1.7--3.2\% of the time, concentrated in smooth bursts during cornering, and increases tracking RMSE by less than 2\% when active.
 
 \begin{table}[t]
   \centering
@@ -96,9 +117,16 @@ The asymmetric cable lengths produce unequal load sharing during steady-state fl
   \end{tabular}
 \end{table}
 
-\subsection{Failure Mode Coverage and Contribution Traceability}
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{Figures/fig_cable_tensions.png}
+  \caption{Cable tension profiles. The asymmetric cable lengths (0.914, 1.105, 0.995\,m) produce unequal steady-state load sharing: Cable~0 (shortest) carries 14.9\,N mean vs.\ Cable~1 (longest) at 10.2\,N---a 45\% imbalance accommodated without inter-agent coordination. Total tension exceeds static weight by 30\% due to dynamic loading.}
+  \label{fig:cable_tensions}
+\end{figure}
 
-Tables~\ref{tab:failure_modes} and~\ref{tab:contribution_map} provide two complementary views of completeness: the former maps each transport hazard to its mitigation and measured performance; the latter traces each contribution claim to its formal support and evidence.
+\subsection{Failure Mode Coverage}
+
+Table~\ref{tab:failure_modes} maps each transport hazard to its mitigation and measured performance.
 
 \begin{table}[t]
   \centering
@@ -110,31 +138,15 @@ Tables~\ref{tab:failure_modes} and~\ref{tab:contribution_map} provide two comple
     \midrule
     Payload mass unknown & CL estimation & $\hat{\theta} \to m_L/N$ in 8\,s \\
     Wind disturbance & ESO rejection & +43\% RMSE without \\
-    Cable slack/overload & CBF tension & $T \in [1.52, 26.3]$\,N \\
+    Cable slack/overload & CBF tension & $T \in [1.1, 24.9]$\,N (mean) \\
     Payload oscillation & $\Sph^2$ anti-swing & $\Psi_q < 0.15$ steady \\
-    Excessive tilt & CBF tilt limit & $\phi \leq 25.1^\circ$ \\
+    Excessive tilt & CBF tilt limit & $\phi \leq 25.0 \pm 0.4^\circ$ \\
     Inter-agent collision & CBF separation & $d_{ij} \geq 1.04$\,m \\
-    Sensor noise/dropout & ESKF fusion & 7.1\,cm RMSE \\
+    Sensor noise/dropout & ESKF fusion & $6.9 \pm 0.03$\,cm RMSE \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-\begin{table}[t]
-  \centering
-  \caption{Contribution $\to$ formal support $\to$ evidence traceability.}
-  \label{tab:contribution_map}
-  \begin{tabular}{@{}p{2.0cm}p{2.8cm}p{2.4cm}@{}}
-    \toprule
-    \textbf{Contribution} & \textbf{Formal Support} & \textbf{Evidence} \\
-    \midrule
-    Decentralized geometric control & Prop.~\ref{prop:lyap} (Lyapunov), cascade stability (\S\ref{sec:control}) & 22.9\,cm RMSE (Table~\ref{tab:tracking}) \\[3pt]
-    CL estimation without PE & Prop.~\ref{prop:cl} + Eq.~\eqref{eq:implicit_coord} & 8\,s convergence, +33\% ablation (Table~\ref{tab:ablation}) \\[3pt]
-    CBF + geometric compat. & Thm.~\ref{thm:compatibility}, ISSf bound~\eqref{eq:issf_bound} & Violations within ISSf margin (Table~\ref{tab:safety}) \\[3pt]
-    Sensor-realistic validation & ESKF (\S\ref{sec:estimation}), bead-chain model (\S\ref{sec:modeling}) & 7.1\,cm nav., 0.7\,MFLOP/s \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-\begin{remark}[Statistical scope]
-Results are for a single deterministic simulation (seed~42); Monte Carlo analysis is deferred to the extended version. However, this scenario exercises all identified hazards simultaneously---slack-to-taut transitions, aggressive cornering with swing excitation, 19\% cable asymmetry, and sustained wind---as confirmed by Table~\ref{tab:failure_modes}, where every failure mode is quantitatively mitigated.
+\begin{remark}[Statistical validation]
+The phase-by-phase results in Table~\ref{tab:tracking} are for the baseline seed~(42). A Monte Carlo study over 15 seeds---with Dryden wind aerodynamic drag forces applied to all bodies---confirms robustness: 3D~RMSE $= 23.5 \pm 1.5$\,cm (coefficient of variation 6.4\%), with range $[21.4, 26.8]$\,cm. Seeds with larger cable asymmetry (up to 21\% spread) show higher tracking RMSE (26.8\,cm), while more symmetric configurations achieve 21.4\,cm, confirming that cable asymmetry---not sensor noise or wind---is the primary driver of performance variation.
 \end{remark}

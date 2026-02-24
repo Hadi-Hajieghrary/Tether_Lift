@@ -42,6 +42,7 @@ add_executable(quad_rope_lift
     src/load_trajectory_generator.cc
     src/cbf_safety_filter.cc
     src/wind_disturbance.cc
+    src/wind_force_applicator.cc
     # Load trajectory following components (Equations 5, 11, 17, 21)
     src/required_force_computer.cc
     src/force_allocation_system.cc

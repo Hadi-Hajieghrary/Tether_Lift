@@ -1,0 +1,8 @@
+Monte Carlo Summary (8 seeds)
+========================================
+3D Tracking RMSE (cm):
+  Mean:   23.5
+  Std:    1.5
+  Min:    21.4
+  Max:    26.8
+  Median: 22.9
