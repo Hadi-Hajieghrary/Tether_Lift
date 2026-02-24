@@ -1,0 +1,62 @@
+Each quadrotor runs three estimators in a strictly downward cascade---no payload, cable, or adaptive-parameter states are exchanged between agents: (i)~an ESKF for navigation, (ii)~a geometric load-state filter, and (iii)~a concurrent learning mass estimator. The separation of timescales---navigation at 200\,Hz versus load/mass estimation at 50\,Hz---allows each layer to treat its inputs as quasi-static, and upstream errors propagate in one direction only, simplifying the stability analysis.
+
+\subsection{Navigation: Error-State Kalman Filter}
+
+A 15-state ESKF~\cite{sola2017quaternion} with error state $\delta x = [\delta p,\,\delta v,\,\delta\theta,\,\delta b_a,\,\delta b_g]^\top \in \R^{15}$ fuses IMU (200\,Hz), GPS (10\,Hz), and barometer (25\,Hz). Propagation at the IMU rate uses bias-corrected specific force $a_W = R(\bar{q})(\tilde{a} - b_a) - ge_3$ and angular velocity $\omega_c = \tilde{\omega} - b_g$. Covariance propagation uses the error-state Jacobian: $P \leftarrow \Phi P\Phi^\top + Q_d$. GPS and barometer updates apply Joseph-form covariance updates, with barometer providing altitude observability during GPS outages. The ESKF provides $(\hat{p}_i, \hat{v}_i, \hat{R}_i)$ to all downstream control and estimation layers; the control loop is closed through the estimator, not ground truth.
+
+\subsection{Decentralized Load-State Estimation}
+
+When cable~$i$ is taut, the payload position is estimated geometrically:
+\begin{equation}
+  z_{p_i} = \hat{p}_i - L_i\,n_i,
+  \label{eq:load_geom}
+\end{equation}
+where $n_i \in \Sph^2$ points from the drone toward the load and $L_i$ is the cable rest length. Each drone maintains a Kalman filter with state $[\hat{p}_{L,i}^\top, \hat{v}_{L,i}^\top]^\top \in \R^6$. The prediction step uses a constant-velocity model with velocity damping ($\beta_v = 0.05$) that gently biases the load velocity toward the quadrotor velocity, reflecting the quasi-static assumption valid during slow transport. The measurement noise is modulated by a tension-confidence factor:
+\begin{equation}
+  \xi_T = \min\!\left(1,\,T_i/T_{\text{conf}}\right), \quad R_k \leftarrow R_k / (0.1 + 0.9\,\xi_T),
+  \label{eq:tconf}
+\end{equation}
+with $T_{\text{conf}} = 20$\,N. When the cable is slack, the measurement variance inflates and the filter relies on prediction. An outlier rejection gate ($\kappa_\nu = 3.0$) prevents cable whip from corrupting the estimate.
+
+With a single cable, load position is observable only along the cable direction; tangential components depend on prediction. This fundamental limitation means the decentralized estimator (49.5\,cm RMSE) is $4\times$ worse than a centralized baseline (12.4\,cm) that fuses all $N$ cable constraints but requires ${\sim}29$\,kbps inter-agent bandwidth.
+
+\subsection{Adaptive Payload Mass Estimation}
+
+From the per-cable vertical force equilibrium of~\eqref{eq:payload}, each drone constructs a scalar parametric model:
+\begin{equation}
+  \underbrace{T_i \cos\phi_i}_{\varphi_i} = \underbrace{\norm{g\,e_3 + \hat{a}_L}}_{Y_i} \cdot \underbrace{\frac{m_L}{N}}_{\theta} + \varepsilon_i,
+  \label{eq:regressor}
+\end{equation}
+where $\phi_i = \arccos(-n_{i,z})$ is the cable angle from vertical, $\hat{a}_L$ is the load acceleration (estimated via numerical differentiation with a first-order low-pass filter, $\tau_f = 0.1$\,s), and $\varepsilon_i$ captures modeling error from non-equilibrium dynamics and cable sag. The approximation is exact for vertical cables under quasi-static conditions; during aggressive maneuvering, the error is absorbed into the UUB convergence bound.
+
+\textit{Implicit coordination mechanism.}
+The regressor~\eqref{eq:regressor} provides the formal basis for the implicit coordination claimed in~\eqref{eq:force_convergence}. Define $u := g\,e_3 + \ddot{p}_L^d$ as in Section~\ref{sec:intro}. Each drone computes $u$ identically from the shared reference, and its feedforward force is $F_{\text{ff},i} = \hat{\theta}_i \cdot u$. From~\eqref{eq:regressor}, as $\hat{\theta}_i \to m_L/N$ independently per agent, the total feedforward force satisfies
+\begin{equation}
+  \textstyle\sum_{i=1}^{N} F_{\text{ff},i} = \sum_{i=1}^{N} \hat{\theta}_i\, u \;\longrightarrow\; N \cdot \frac{m_L}{N}\, u = m_L\, u.
+  \label{eq:implicit_coord}
+\end{equation}
+No agent requires knowledge of $N$ or $m_L$; each simply estimates ``how heavy is my share'' from its local cable, and the summation yields the correct collective compensation. This property holds because the regressor $Y_i$ and the control input $u$ are both derived from the \emph{same} shared trajectory, ensuring that the scalar parametric model is consistent across agents.
+
+The concurrent learning update law~\cite{chowdhary2010concurrent} augments gradient descent with stored historical data:
+\begin{equation}
+  \dot{\hat{\theta}}_i = -\gamma\,Y_i\,s_{\text{proj}} - \gamma\rho \sum_{j=1}^{M_i} Y_j(Y_j\hat{\theta}_i - \varphi_j),
+  \label{eq:cl_update}
+\end{equation}
+where $\gamma = 0.5$, $\rho = 0.5$, and $s_{\text{proj}} = s_i^\top n_i$ projects the sliding variable $s_i = \dot{e}_{L,i} + \lambda e_{L,i}$ ($\lambda = 1.0$) onto the cable direction. The first term drives online gradient descent; the second replays stored data pairs $\{(Y_j, \varphi_j)\}_{j=1}^{M_i}$. The history buffer stores up to $\bar{M} = 50$ data points, admitting new samples only when excitation exceeds $Y_{\min} = 0.5$\,m/s$^2$ and the regressor differs from the buffer mean by $\delta_Y = 0.1$, ensuring data diversity. After each step, the estimate is projected to $[\theta_{\min}, \theta_{\max}] = [0.1, 50.0]$\,kg.
+
+\begin{proposition}[Convergence without PE]\label{prop:cl}
+Provided $\Sigma_Y = \frac{1}{M}\sum_j Y_j^2 > 0$ (at least one informative sample), the parameter error satisfies:
+\begin{equation}
+  \abs{\tilde{\theta}(t)} \leq \abs{\tilde{\theta}(0)}\exp(-\gamma\rho\,\Sigma_Y\,t),
+  \label{eq:cl_conv}
+\end{equation}
+independently of online excitation. Under bounded modeling error $|\varepsilon_i| \leq \bar{\varepsilon}$, convergence is uniformly ultimately bounded: $|\tilde{\theta}| \leq \bar{\varepsilon}/(\rho\,\Sigma_Y)$.
+\end{proposition}
+
+\begin{proof}
+With $V_\theta = \tilde{\theta}^2/(2\gamma)$, the concurrent learning term gives $\dot{V}_\theta \leq -\gamma\rho\Sigma_Y\tilde{\theta}^2$; Gr\"{o}nwall's inequality yields~\eqref{eq:cl_conv}. Bounded $\varepsilon_i$ introduces a residual limiting convergence to the UUB ball.
+\end{proof}
+
+\begin{remark}[Implicit coordination and uncertainty mitigation]
+Three adaptations distinguish this from the standard formulation in~\cite{chowdhary2010concurrent}: (i)~the scalar regressor~\eqref{eq:regressor} is extracted from coupled multi-body dynamics using only local cable measurements, avoiding full system models or inter-agent communication; (ii)~the tension-confidence factor~\eqref{eq:tconf} prevents corruption during slack-to-taut transitions; (iii)~convergence~\eqref{eq:cl_conv} holds independently per agent, yet $\sum_i \hat{\theta}_i \to m_L$ provides correct collective force~\eqref{eq:force_convergence} without any consensus protocol. From a safety perspective, each agent's independent estimation also mitigates common-cause failures: a corrupted mass estimate on one drone does not propagate to others, and the remaining agents continue to provide their correct force shares.
+\end{remark}

@@ -1,0 +1,58 @@
+A modular CBF layer enforces operational constraints as a minimally invasive post-processing step, modifying the nominal GPAC output only when necessary. Each barrier function corresponds directly to a cooperative transport hazard identified in Section~\ref{sec:intro}, providing runtime supervision within verified safety envelopes.
+
+\subsection{Barrier Function Design}
+
+The safety filter operates on the force vector $f_i \in \R^3$ from Layer~1. Abstracting the translational dynamics~\eqref{eq:quad_trans} as $m_Q\ddot{p}_i = f_i + w_i(t)$ (affine in the control input, with lumped disturbance $w_i$ estimated by the ESO), five barrier functions encode the safe set $\mathcal{C}_k = \{x \mid h_k(x) \geq 0\}$:
+\begin{align}
+  h_T^{\text{low}} &= T_i - T_{\min},\;\; h_T^{\text{up}} = T_{\max} - T_i & \text{(tautness)}, \label{eq:h_taut}\\
+  h_\theta &= \cos\theta_{\max} - \cos\theta_i & \text{(cable angle)}, \label{eq:h_angle}\\
+  h_\omega &= \omega_{\max}^2 - \norm{\omega_{q_i}}^2 & \text{(swing rate)}, \label{eq:h_swing}\\
+  h_{\text{tilt}} &= \cos\phi_{\max} - \cos\phi_i & \text{(vehicle tilt)}, \label{eq:h_tilt}\\
+  h_{\text{col}} &= \norm{p_i - p_j}^2 - d_{\min}^2 & \text{(collision)}, \label{eq:h_col}
+\end{align}
+with $T_{\min}\!=\!2$\,N, $T_{\max}\!=\!60$\,N, $\theta_{\max}\!=\!0.6$\,rad ($34.4^\circ$), $\omega_{\max}\!=\!1.5$\,rad/s, $\phi_{\max}\!=\!0.5$\,rad ($28.6^\circ$), $d_{\min}\!=\!0.8$\,m. For the collision barrier~\eqref{eq:h_col}, the second derivative involves both $f_i$ and $f_j$; in the decentralized setting, agent~$i$ treats the neighbor's acceleration as a bounded disturbance and enforces a conservative one-sided HOCBF constraint using only its own force input, with the disturbance absorbed into the ISSf margin.
+
+The tautness barriers~\eqref{eq:h_taut} are relative-degree-one. Cable angle, tilt, and collision are relative-degree-two and use HOCBFs~\cite{ames2019control}: defining $\psi_1 = \dot{h} + \alpha_1 h$, the constraint $\dot{\psi}_1 + \alpha_2\psi_1 \geq 0$ becomes relative-degree-one in the control, with the safe set $\{\psi_1 \geq 0\} \cap \{h \geq 0\}$ rendered forward-invariant.
+
+\subsection{Safety QP with ISSf Guarantees}
+
+The safety filter solves, at each control cycle:
+\begin{equation}
+  f_{\text{safe}} = \argmin_{f,\,\delta}\;\norm{f - f_{\text{nom}}}^2 + \lambda\!\sum_j\!\delta_j^2 \;\;\text{s.t.}\;\; \dot{h}_j + \alpha_j h_j \geq -\mu_j - \delta_j,
+  \label{eq:cbf_qp}
+\end{equation}
+with $\lambda = 100$ penalizing relaxation. In the presence of disturbances, hard forward invariance of $\{h \geq 0\}$ is unrealistic. We employ the Input-to-State Safety (ISSf) framework, coupling the robustness margin to the ESO estimate:
+\begin{equation}
+  \dot{h}_j + \alpha_j h_j \geq -\mu_{\text{base}} - \kappa_d\norm{\hat{d}_i},
+  \label{eq:issf}
+\end{equation}
+with $\mu_{\text{base}} = 2.0$, $\kappa_d = 1.5$. When the ESO reports large disturbances, the margin grows and the filter activates earlier. The steady-state violation bound is:
+\begin{equation}
+  h_j(t) \geq -(\mu_{\text{base}} + \kappa_d\bar{d})/\alpha_j.
+  \label{eq:issf_bound}
+\end{equation}
+
+The tautness constraint requires $\dot{T}_i$, estimated via a second-order Butterworth low-pass ($f_c = 15$\,Hz, $-40$\,dB/dec) applied to finite-difference tension rate, attenuating cable vibrations (${\sim}55$\,Hz) by ${\sim}22$\,dB with ${\sim}11$\,ms group delay.
+
+The implementation uses sequential gradient projection with priority ordering (tautness $>$ angle $>$ tilt $>$ swing $>$ collision), which is equivalent to the QP~\eqref{eq:cbf_qp} when at most one constraint is active---the typical case, as the CBF is active only 1.7--3.2\% of total simulation time. When multiple constraints activate simultaneously (rare; concentrated in $<$0.3\% of time during the sharpest cornering), the sequential method enforces the explicit priority ordering above, producing a feasible but potentially suboptimal solution; the slack variables $\delta_j$ ensure that lower-priority constraints degrade gracefully. The per-agent cost is $O(N_c)$ with $N_c = 6$ constraints (${\sim}1200$\,FLOPs/cycle).
+
+\subsection{Compatibility with Geometric Attitude Control}
+
+The safety filter modifies the force direction, which changes the desired rotation $R_d$. A critical requirement is that this perturbation does not exit the almost-global stability region of the geometric controller.
+
+\begin{theorem}[Safety-Stability Compatibility]\label{thm:compatibility}
+Suppose the tilt barrier~\eqref{eq:h_tilt} with $\phi_{\max}=0.5$\,rad is enforced. Then the attitude error between the nominal and safe desired rotations satisfies:
+\begin{equation}
+  \Psi_R(R_d^{\text{nom}}, R_d^{\text{safe}}) \leq 1 - \cos(2\phi_{\max}) \approx 0.46 < 1,
+  \label{eq:compat}
+\end{equation}
+and the geometric attitude controller retains almost-global exponential stability.
+\end{theorem}
+
+\begin{proof}
+The tilt constraint bounds $\phi_i \leq \phi_{\max}$, so the angle between $f_{\text{nom}}$ and $f_{\text{safe}}$ satisfies $\vartheta \leq 2\phi_{\max} = 1.0$\,rad. Since $R_d$ aligns $b_{3c} = f/\norm{f}$~\eqref{eq:Rd_extract}, a rotation by $\vartheta$ gives $\Psi_R(R_d^{\text{nom}}, R_d^{\text{safe}}) = 1 - \cos\vartheta \leq 0.46$. As $\Psi_R(R_i, R_d^{\text{nom}}) \to 0$ exponentially (Proposition~\ref{prop:lyap}), subadditivity of $\Psi_R$~\cite{lee2010geometric} yields $\Psi_R(R_i, R_d^{\text{safe}}) < \varepsilon + 0.46 < 2$ after settling (${\sim}0.1$\,s).
+\end{proof}
+
+\begin{remark}[Timescale separation]\label{rem:timescale}
+The compatibility result relies on three well-separated timescales: the \emph{fast} attitude loop ($k_R/J \approx 200$\,rad/s, settling ${\sim}5$\,ms), the \emph{medium} safety filter (Butterworth cutoff $2\pi \times 15 \approx 94$\,rad/s), and the \emph{slow} position/cable dynamics ($\sqrt{g/L} \approx 3$\,rad/s). Since the fast dynamics settle (${\sim}5$\,ms) an order of magnitude faster than force modifications evolve (${\sim}50$--$200$\,ms), standard singular perturbation analysis~\cite{khalil2002nonlinear} ensures the attitude controller tracks the slowly varying $R_d^{\text{safe}}$ without losing stability. This bandwidth hierarchy $\omega_{\text{att}} \gg \omega_{\text{CBF}} \gg \omega_{\text{pos}}$ is the structural condition making the layered architecture composable.
+\end{remark}
