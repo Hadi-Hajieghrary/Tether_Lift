@@ -1,4 +1,18 @@
 % !TEX root = ../Main.tex
+\begin{figure}[t!]
+  \centering
+  \includegraphics[width=\columnwidth]{Figures/fig_cbf_activation.png}
+  \caption{CBF activation. \textit{Top:} Tension margin (distance to $T_{\min}$) for all cables. \textit{Middle:} Cable angle margin (distance to $\theta_{\max} = 34.4^\circ$); shaded regions indicate CBF activation during aggressive cornering (1.7\% of time). \textit{Bottom:} Tilt margin (never violated). Orange regions denote constraint activation.}
+  \label{fig:cbf_activation}
+\end{figure}
+
+\begin{figure}[t!]
+  \centering
+  \includegraphics[width=\columnwidth]{Figures/fig_safety_constraints.png}
+  \caption{Safety constraint satisfaction. \textit{Top:} Cable angle from vertical for each cable, with the CBF limit $\theta_{\max} = 34.4^\circ$. Brief excursions above the limit during aggressive cornering remain within the ISSf margin. \textit{Bottom:} Quadrotor tilt angle with limit $\phi_{\max} = 28.6^\circ$; the constraint is never violated.}
+  \label{fig:safety_constraints}
+\end{figure}
+
 A modular CBF layer enforces operational constraints as a minimally invasive post-processing step, modifying the nominal GPAC output only when necessary. Each barrier function corresponds directly to a cooperative transport hazard identified in Section~\ref{sec:intro}, providing runtime supervision within verified safety envelopes.
 
 \subsection{Barrier Function Design}
@@ -11,34 +25,28 @@ The safety filter operates on the force vector $f_i \in \R^3$ from Layer~1. Abst
   h_{\text{tilt}} &= \cos\phi_{\max} - \cos\phi_i & \text{(vehicle tilt)}, \label{eq:h_tilt}\\
   h_{\text{col}} &= \norm{p_i - p_j}^2 - d_{\min}^2 & \text{(collision)}, \label{eq:h_col}
 \end{align}
-with $T_{\min}\!=\!2$\,N, $T_{\max}\!=\!60$\,N, $\theta_{\max}\!=\!0.6$\,rad ($34.4^\circ$), $\omega_{\max}\!=\!1.5$\,rad/s, $\phi_{\max}\!=\!0.5$\,rad ($28.6^\circ$), $d_{\min}\!=\!0.8$\,m. For the collision barrier~\eqref{eq:h_col}, the second derivative involves both $f_i$ and $f_j$; in the decentralized setting, agent~$i$ treats the neighbor's acceleration as a bounded disturbance and enforces a conservative one-sided HOCBF constraint using only its own force input, with the disturbance absorbed into the ISSf margin.
+with $T_{\min}\!=\!2$\,N, $T_{\max}\!=\!60$\,N, $\theta_{\max}\!=\!0.6$\,rad ($34.4^\circ$), $\omega_{\max}\!=\!1.5$\,rad/s, $\phi_{\max}\!=\!0.5$\,rad ($28.6^\circ$), $d_{\min}\!=\!0.8$\,m. For the collision barrier~\eqref{eq:h_col}, the second derivative involves both $f_i$ and $f_j$; in the decentralized setting, agent~$i$ treats the neighbor's acceleration as a bounded disturbance and enforces a conservative one-sided HOCBF constraint using only its force input, with the disturbance absorbed into the ISSf margin.
 
 The tautness barriers~\eqref{eq:h_taut} are relative-degree-one. Cable angle, tilt, and collision are relative-degree-two and use HOCBFs~\cite{xiao2022control, ames2019control}: defining $\psi_1 = \dot{h} + \alpha_1 h$, the constraint $\dot{\psi}_1 + \alpha_2\psi_1 \geq 0$ becomes relative-degree-one in the control, with the safe set $\{\psi_1 \geq 0\} \cap \{h \geq 0\}$ rendered forward-invariant.
 
 \subsection{Safety QP with ISSf Guarantees}
 
 The safety filter solves, at each control cycle:
-\begin{equation}
-  f_{\text{safe}} = \argmin_{f,\,\delta}\;\norm{f - f_{\text{nom}}}^2 + \lambda\!\sum_j\!\delta_j^2 \;\;\text{s.t.}\;\; \dot{h}_j + \alpha_j h_j \geq -\mu_j - \delta_j,
+\begin{align}
   \label{eq:cbf_qp}
-\end{equation}
+  f_{\text{safe}} = \argmin_{f,\,\delta}\;\norm{f - f_{\text{nom}}}^2 + \lambda\!\sum_j\!\delta_j^2 \\
+  \;\;\text{s.t.}\;\; \dot{h}_j + \alpha_j h_j \geq -\mu_j - \delta_j,\nonumber
+\end{align}
 with $\lambda = 100$ penalizing relaxation. In the presence of disturbances, hard forward invariance of $\{h \geq 0\}$ is unrealistic. We employ the Input-to-State Safety (ISSf) framework, coupling the robustness margin to the ESO estimate:
 \begin{equation}
   \dot{h}_j + \alpha_j h_j \geq -\mu_{\text{base}} - \kappa_d\norm{\hat{d}_i},
   \label{eq:issf}
 \end{equation}
-with $\mu_{\text{base}} = 2.0$, $\kappa_d = 1.5$. When the ESO reports large disturbances, the margin grows and the filter activates earlier. The steady-state violation bound is:
+with $\mu_{\text{base}} = 2.0$, $\kappa_d = 1.5$. When the ESO reports large disturbances, the margin grows, and the filter activates earlier. The steady-state violation bound is:
 \begin{equation}
   h_j(t) \geq -(\mu_{\text{base}} + \kappa_d\bar{d})/\alpha_j.
   \label{eq:issf_bound}
 \end{equation}
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=\columnwidth]{Figures/fig_cbf_activation.png}
-  \caption{CBF activation timeline. \textit{Top:} Tension margin (distance to $T_{\min}$) for all cables. \textit{Middle:} Cable angle margin (distance to $\theta_{\max} = 34.4^\circ$); shaded regions indicate CBF activation during aggressive cornering (1.7\% of time). \textit{Bottom:} Tilt margin (never violated). Orange regions denote constraint activation.}
-  \label{fig:cbf_activation}
-\end{figure}
 
 The tautness constraint requires $\dot{T}_i$, estimated via a second-order Butterworth low-pass ($f_c = 15$\,Hz, $-40$\,dB/dec) applied to finite-difference tension rate, attenuating cable vibrations (${\sim}55$\,Hz) by ${\sim}22$\,dB with ${\sim}11$\,ms group delay.
 
@@ -56,13 +64,6 @@ Suppose the tilt barrier~\eqref{eq:h_tilt} with $\phi_{\max}=0.5$\,rad is enforc
 \end{equation}
 and the geometric attitude controller retains almost-global exponential stability.
 \end{theorem}
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=\columnwidth]{Figures/fig_safety_constraints.png}
-  \caption{Safety constraint satisfaction. \textit{Top:} Cable angle from vertical for each cable, with the CBF limit $\theta_{\max} = 34.4^\circ$ (dashed). Brief excursions above the limit during aggressive cornering remain within the ISSf margin. \textit{Bottom:} Quadrotor tilt angle with limit $\phi_{\max} = 28.6^\circ$ (dashed); the constraint is never violated.}
-  \label{fig:safety_constraints}
-\end{figure}
 
 \begin{proof}
 The tilt constraint bounds $\phi_i \leq \phi_{\max}$, so the angle between $f_{\text{nom}}$ and $f_{\text{safe}}$ satisfies $\vartheta \leq 2\phi_{\max} = 1.0$\,rad. Since $R_d$ aligns $b_{3c} = f/\norm{f}$~\eqref{eq:Rd_extract}, a rotation by $\vartheta$ gives $\Psi_R(R_d^{\text{nom}}, R_d^{\text{safe}}) = 1 - \cos\vartheta \leq 0.46$. As $\Psi_R(R_i, R_d^{\text{nom}}) \to 0$ exponentially (Proposition~\ref{prop:lyap}), subadditivity of $\Psi_R$~\cite{lee2010geometric} yields $\Psi_R(R_i, R_d^{\text{safe}}) < \varepsilon + 0.46 < 2$ after settling (${\sim}0.1$\,s).
