@@ -41,7 +41,9 @@ COLORS = {
     'limit':  '#E69F00',
     'grey':   '#999999',
 }
-DRONE_COLORS = [COLORS['drone0'], COLORS['drone1'], COLORS['drone2']]
+ALL_DRONE_COLORS = ['#0072B2', '#D55E00', '#009E73', '#CC79A7', '#F0E442',
+                     '#56B4E9', '#E69F00', '#000000']
+DRONE_COLORS = ALL_DRONE_COLORS[:3]
 DRONE_NAMES = ['Drone 0', 'Drone 1', 'Drone 2']
 CABLE_NAMES = ['Cable 0', 'Cable 1', 'Cable 2']
 
@@ -97,6 +99,9 @@ def load_all_data(data_dir):
     estimator = load_csv(data_dir, 'estimator_outputs.csv')
     wind = load_csv(data_dir, 'wind_disturbance.csv')
 
+    # Detect number of drones from columns
+    num_drones = sum(1 for c in traj.columns if c.startswith('drone') and c.endswith('_x'))
+
     t = traj['time'].values
     ref = build_reference_trajectory(cfg, t)
 
@@ -122,6 +127,7 @@ def load_all_data(data_dir):
         'wind': wind,
         'err_3d': err_3d,
         'rmse_running': rmse_running,
+        'num_drones': num_drones,
     }
     return data
 
@@ -270,6 +276,8 @@ def render_mission(data, fps=30, speed=2.0, max_time=None):
     err_3d = data['err_3d']
     cfg = data['cfg']
     wind = data['wind']
+    nd = data['num_drones']
+    drone_colors = ALL_DRONE_COLORS[:nd]
 
     if max_time is None:
         max_time = t[-1]
@@ -279,15 +287,14 @@ def render_mission(data, fps=30, speed=2.0, max_time=None):
 
     # Precompute mass estimation (approximate from tension data)
     gravity = 9.81
-    mass_est = np.zeros((len(t), 3))
-    for q in range(3):
+    mass_est = np.zeros((len(t), nd))
+    for q in range(nd):
         T_mag = tensions[f'rope{q}_mag'].values
-        # theta_i ~ T_i / g (rough proxy when cable near-vertical)
         mass_est[:, q] = T_mag / gravity
 
     # Smooth mass estimates
     from scipy.ndimage import uniform_filter1d
-    for q in range(3):
+    for q in range(nd):
         mass_est[:, q] = uniform_filter1d(mass_est[:, q], size=100)
 
     # Trail storage
@@ -337,18 +344,18 @@ def render_mission(data, fps=30, speed=2.0, max_time=None):
         dynamic_artists.append(sc)
 
         # Draw drones and cables
-        for q in range(3):
+        for q in range(nd):
             dx = traj[f'drone{q}_x'].values[idx]
             dy = traj[f'drone{q}_y'].values[idx]
             dz = traj[f'drone{q}_z'].values[idx]
 
-            sc_d = ax3d.scatter([dx], [dy], [dz], c=DRONE_COLORS[q], s=50,
+            sc_d = ax3d.scatter([dx], [dy], [dz], c=drone_colors[q], s=50,
                                 marker='^', zorder=10, edgecolors='white', linewidths=0.3)
             dynamic_artists.append(sc_d)
 
             # Cable line
             lines_c = ax3d.plot([dx, lx], [dy, ly], [dz, lz],
-                                color=DRONE_COLORS[q], alpha=0.4, linewidth=0.8)
+                                color=drone_colors[q], alpha=0.4, linewidth=0.8)
             dynamic_artists.extend(lines_c)
 
         # Wind arrow in 3D view
@@ -383,9 +390,9 @@ def render_mission(data, fps=30, speed=2.0, max_time=None):
         # Slowly rotate camera
         ax3d.view_init(elev=25 + 5 * np.sin(t_now / 15), azim=-60 + t_now * 0.8)
 
-        # Phase label
+        # Phase label with drone count
         phase = get_phase_label(t_now)
-        ax3d.set_title(f'{phase}     t = {t_now:.1f} s', fontsize=13, pad=8,
+        ax3d.set_title(f'N={nd}   {phase}     t = {t_now:.1f} s', fontsize=13, pad=8,
                         color='white', fontweight='bold')
 
         # --- Telemetry panels: draw up to current time ---
@@ -400,9 +407,9 @@ def render_mission(data, fps=30, speed=2.0, max_time=None):
         ax_tension.set_ylim(-1, 35)
         ax_tension.axhline(2.0, color=COLORS['limit'], ls='--', lw=0.8, alpha=0.7)
         ax_tension.grid(True, alpha=0.3)
-        for q in range(3):
+        for q in range(nd):
             ax_tension.plot(t_sl, tensions[f'rope{q}_mag'].values[sl],
-                            color=DRONE_COLORS[q], lw=1.0, label=CABLE_NAMES[q])
+                            color=drone_colors[q], lw=1.0, label=f'Cable {q}')
         if frame_idx == 0:
             ax_tension.legend(loc='upper right', framealpha=0.7, fontsize=7)
 
@@ -459,9 +466,9 @@ def render_mission(data, fps=30, speed=2.0, max_time=None):
         ax_est.set_ylim(0, 3.5)
         ax_est.axhline(1.0, color='white', ls='--', lw=0.8, alpha=0.5)
         ax_est.grid(True, alpha=0.3)
-        for q in range(3):
+        for q in range(nd):
             ax_est.plot(t_sl, mass_est[sl, q],
-                        color=DRONE_COLORS[q], lw=1.0, label=DRONE_NAMES[q])
+                        color=drone_colors[q], lw=1.0, label=f'Drone {q}')
         ax_est.text(max_time * 0.98, 1.15, '$m_L/N = 1.0$ kg',
                     ha='right', fontsize=8, color='white', alpha=0.7)
 
@@ -544,6 +551,8 @@ def main():
                         help='Playback speed multiplier (default: 2x)')
     parser.add_argument('--fast', action='store_true',
                         help='Quick preview: lower resolution, 4x speed')
+    parser.add_argument('--data-dir-5q', type=str, default=None,
+                        help='5-quad simulation log (for scalability scene)')
     args = parser.parse_args()
 
     # Resolve data directory
@@ -600,13 +609,45 @@ def main():
     plt.close(title_fig)
     print(f'  {len(title_frames)} frames')
 
-    # --- Scene 2: Full mission ---
-    print(f'Rendering mission ({args.speed}x speed)...')
+    # --- Scene 2: Full mission (N=3) ---
+    print(f'Rendering N={data["num_drones"]} mission ({args.speed}x speed)...')
     mission_frames = render_mission(data, fps=fps, speed=args.speed)
     all_frames.extend(mission_frames)
     print(f'  {len(mission_frames)} frames')
 
-    # --- Scene 3: End card (4 seconds) ---
+    # --- Scene 3: Scalability demonstration (N=5) ---
+    if args.data_dir_5q:
+        print(f'\nLoading 5-quad data from {args.data_dir_5q}...')
+        data_5q = load_all_data(args.data_dir_5q)
+        print(f'  N={data_5q["num_drones"]} drones, {data_5q["t"][-1]:.0f}s')
+
+        # Scalability transition card
+        trans_fig = plt.figure(figsize=figsize, dpi=dpi)
+        trans_fig.set_facecolor('#1a1a2e')
+        ax_t = trans_fig.add_axes([0, 0, 1, 1])
+        ax_t.set_xlim(0, 1); ax_t.set_ylim(0, 1); ax_t.axis('off')
+        ax_t.set_facecolor('#1a1a2e')
+        ax_t.text(0.5, 0.6, 'Scalability Demonstration',
+                  ha='center', va='center', fontsize=22, fontweight='bold', color='white')
+        ax_t.text(0.5, 0.45, f'N = 3  \u2192  N = {data_5q["num_drones"]}  quadcopters',
+                  ha='center', va='center', fontsize=16, color='#a0c4ff')
+        ax_t.text(0.5, 0.32, 'Same controller per agent \u2014 no retuning, no reconfiguration',
+                  ha='center', va='center', fontsize=11, color='#999999')
+        for _ in range(fps * 3):  # 3 second card
+            trans_fig.canvas.draw()
+            buf = np.frombuffer(trans_fig.canvas.buffer_rgba(), dtype=np.uint8)
+            buf = buf.reshape(trans_fig.canvas.get_width_height()[::-1] + (4,))
+            all_frames.append(buf[:, :, :3].copy())
+        plt.close(trans_fig)
+        print(f'  Transition card: {fps * 3} frames')
+
+        # Render 5-quad mission
+        print(f'Rendering N={data_5q["num_drones"]} mission ({args.speed}x speed)...')
+        mission_5q_frames = render_mission(data_5q, fps=fps, speed=args.speed)
+        all_frames.extend(mission_5q_frames)
+        print(f'  {len(mission_5q_frames)} frames')
+
+    # --- End card ---
     print('Rendering end card...')
     end_fig = plt.figure(figsize=figsize, dpi=dpi)
     end_frames = render_end_card(end_fig, duration_frames=fps * 4, data=data)
