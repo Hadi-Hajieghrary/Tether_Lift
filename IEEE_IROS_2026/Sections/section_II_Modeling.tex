@@ -30,12 +30,7 @@ The cable direction $q_i \in \Sph^2$ from the payload toward the quadrotor evolv
 
 \subsection{Bead-Chain Cable Model}
 
-Each cable is discretized as $n_b$ point-mass beads connected by $n_b+1$ tension-only spring-damper segments. Let $b_0$ denote the quadrotor attachment, $b_1,\ldots,b_{n_b}$ the bead positions, and $b_{n_b+1}$ the payload attachment. Each segment has rest length $L_0 = L_{\text{rest}}/(n_b+1)$, stretch $\Delta_j = \norm{b_{j-1}-b_j} - L_0$, and unit direction $\hat{e}_j = (b_{j-1}-b_j)/\norm{b_{j-1}-b_j}$. The tension-only force law is
-\begin{equation}
-  T_j = \begin{cases} k_s \Delta_j + c_s [\dot{\Delta}_j]^+, & \Delta_j > 0,\\0, & \Delta_j \leq 0, \end{cases}
-  \label{eq:cable_tension}
-\end{equation}
-where $[\cdot]^+ = \max(\cdot,0)$ restricts damping to the stretching phase. The segment stiffness is derived from a maximum-stretch design criterion ($\epsilon_{\max} = 15\%$):
+Each cable is discretized as $n_b$ point-mass beads connected by $n_b+1$ tension-only spring-damper segments. Let $b_0$ denote the quadrotor attachment, $b_1,\ldots,b_{n_b}$ the bead positions, and $b_{n_b+1}$ the payload attachment. Each segment has rest length $L_0 = L_{\text{rest}}/(n_b+1)$, stretch $\Delta_j = \norm{b_{j-1}-b_j} - L_0$, and unit direction $\hat{e}_j = (b_{j-1}-b_j)/\norm{b_{j-1}-b_j}$. The tension-only force law is $T_j = k_s \Delta_j + c_s [\dot{\Delta}_j]^+$ if $\Delta_j > 0$ and $0$ otherwise. The notation $[\cdot]^+ = \max(\cdot,0)$ restricts damping to the stretching phase. The segment stiffness is derived from a maximum-stretch design criterion ($\epsilon_{\max} = 15\%$):
 \begin{equation}
   k_s = \frac{F_{\text{load}}}{L_{\text{rest}}\,\epsilon_{\max}} \cdot (n_b + 1), \quad c_s = c_{\text{ref}}\sqrt{k_s/k_{\text{ref}}},
   \label{eq:stiffness}
