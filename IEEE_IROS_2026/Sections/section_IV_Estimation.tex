@@ -1,5 +1,12 @@
 % !TEX root = ../Main.tex
-Each quadrotor runs three estimators in a strictly downward cascade---no payload, cable, or adaptive-parameter states are exchanged between agents: (i)~an ESKF for navigation, (ii)~a geometric load-state filter, and (iii)~a concurrent learning mass estimator. The separation of timescales---navigation at 200\,Hz versus load/mass estimation at 50\,Hz---allows each layer to treat its inputs as quasi-static, and upstream errors propagate in one direction only, simplifying the stability analysis.
+\begin{figure}[t!]
+  \centering
+  \includegraphics[width=\columnwidth]{Figures/fig_mass_convergence.png}
+  \caption{Adaptive mass estimation convergence. \textit{Top:} Per-drone concurrent learning estimates $\hat{\theta}_i \to m_L/N = 1.0$\,kg, converging within $\sim$8\,s. \textit{Bottom:} Comparison with gradient-only adaptation, which requires $\sim$22\,s and exhibits larger steady-state oscillation.}
+  \label{fig:mass_convergence}
+\end{figure}
+
+Each quadrotor runs three estimators in a strictly downward cascade---no payload, cable, or adaptive-parameter states are exchanged between agents: (i)~an ESKF for navigation, (ii)~a geometric load-state filter, and (iii)~a concurrent learning mass estimator. The separation of timescales---navigation at 200\,Hz versus load/mass estimation at 50\,Hz---allows each layer to treat its inputs as quasi-static, and upstream errors propagate in only one direction, simplifying the stability analysis.
 
 \subsection{Navigation: Error-State Kalman Filter}
 
@@ -7,12 +14,7 @@ A 15-state ESKF~\cite{sola2017quaternion} with error state $\delta x = [\delta p
 
 \subsection{Decentralized Load-State Estimation}
 
-When cable~$i$ is taut, the payload position is estimated geometrically:
-\begin{equation}
-  z_{p_i} = \hat{p}_i - L_i\,n_i,
-  \label{eq:load_geom}
-\end{equation}
-where $n_i \in \Sph^2$ points from the drone toward the load and $L_i$ is the cable rest length. Each drone maintains a Kalman filter with state $[\hat{p}_{L,i}^\top, \hat{v}_{L,i}^\top]^\top \in \R^6$. The prediction step uses a constant-velocity model with velocity damping ($\beta_v = 0.05$) that gently biases the load velocity toward the quadrotor velocity, reflecting the quasi-static assumption valid during slow transport. The measurement noise is modulated by a tension-confidence factor:
+When cable~$i$ is taut, the payload position is estimated geometrically, $z_{p_i} = \hat{p}_i - L_i\,n_i$, where $n_i \in \Sph^2$ points from the drone toward the load and $L_i$ is the cable rest length. Each drone maintains a Kalman filter with state $[\hat{p}_{L,i}^\top, \hat{v}_{L,i}^\top]^\top \in \R^6$. The prediction step uses a constant-velocity model with velocity damping ($\beta_v = 0.05$) that gently biases the load velocity toward the quadrotor velocity, reflecting the quasi-static assumption valid during slow transport. The measurement noise is modulated by a tension-confidence factor:
 \begin{equation}
   \xi_T = \min\!\left(1,\,T_i/T_{\text{conf}}\right), \quad R_k \leftarrow R_k / (0.1 + 0.9\,\xi_T),
   \label{eq:tconf}
@@ -54,17 +56,8 @@ Provided $\Sigma_Y = \frac{1}{M}\sum_j Y_j^2 > 0$ (at least one informative samp
 independently of online excitation. Under bounded modeling error $|\varepsilon_i| \leq \bar{\varepsilon}$, convergence is uniformly ultimately bounded: $|\tilde{\theta}| \leq \bar{\varepsilon}/(\rho\,\Sigma_Y)$.
 \end{proposition}
 
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=\columnwidth]{Figures/fig_mass_convergence.png}
-  \caption{Adaptive mass estimation convergence. \textit{Top:} Per-drone concurrent learning estimates $\hat{\theta}_i \to m_L/N = 1.0$\,kg, converging within $\sim$8\,s. \textit{Bottom:} Comparison with gradient-only adaptation, which requires $\sim$22\,s and exhibits larger steady-state oscillation.}
-  \label{fig:mass_convergence}
-\end{figure}
-
 \begin{proof}
 With $V_\theta = \tilde{\theta}^2/(2\gamma)$, the concurrent learning term gives $\dot{V}_\theta \leq -\gamma\rho\Sigma_Y\tilde{\theta}^2$; Gr\"{o}nwall's inequality yields~\eqref{eq:cl_conv}. Bounded $\varepsilon_i$ introduces a residual limiting convergence to the UUB ball.
 \end{proof}
 
-\begin{remark}[Adaptations from~\cite{chowdhary2010concurrent}]
-The scalar regressor~\eqref{eq:regressor} uses only local cable measurements (no full system model), the tension-confidence factor~\eqref{eq:tconf} prevents corruption during slack-to-taut transitions, and per-agent convergence~\eqref{eq:cl_conv} yields correct collective force~\eqref{eq:force_convergence} without consensus---while also isolating estimation faults to individual agents.
-\end{remark}
+The scalar regressor~\eqref{eq:regressor} uses only local cable measurements (no full system model), the tension-confidence factor~\eqref{eq:tconf} prevents corruption during slack-to-taut transitions, and per-agent convergence~\eqref{eq:cl_conv} yields correct collective force~\eqref{eq:force_convergence} without consensus---while also isolating estimation faults to individual agents \cite{chowdhary2010concurrent}.

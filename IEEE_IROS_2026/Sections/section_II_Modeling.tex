@@ -40,7 +40,7 @@ where $[\cdot]^+ = \max(\cdot,0)$ restricts damping to the stretching phase. The
   k_s = \frac{F_{\text{load}}}{L_{\text{rest}}\,\epsilon_{\max}} \cdot (n_b + 1), \quad c_s = c_{\text{ref}}\sqrt{k_s/k_{\text{ref}}},
   \label{eq:stiffness}
 \end{equation}
-with $F_{\text{load}} = m_L g/N$ and reference values $k_{\text{ref}} = 300$\,N/m, $c_{\text{ref}} = 15$\,N$\cdot$s/m. Each bead (mass $m_b = m_{\text{rope}}/n_b$, with $m_{\text{rope}} = 0.2$\,kg) obeys $m_b\ddot{b}_j = F_j - F_{j+1} - m_bg\,e_3$. This model naturally captures wave propagation (${\sim}\sqrt{k_s L_0/m_b}$), distributed inertia, and the impulsive loading during slack-to-taut transitions absent from rigid-link models. Rope rest lengths are sampled from $L_{\text{rest},i} \sim \mathcal{N}(\bar{L}_i, \sigma_{L_i}^2)$ to model manufacturing uncertainty, yielding up to 19\% asymmetry in the simulation.
+with $F_{\text{load}} = m_L g/N$ and reference values $k_{\text{ref}} = 300$\,N/m, $c_{\text{ref}} = 15$\,N$\cdot$s/m. Each bead (mass $m_b = m_{\text{rope}}/n_b$, with $m_{\text{rope}} = 0.2$\,kg) obeys $m_b\ddot{b}_j = F_j - F_{j+1} - m_bg\,e_3$. This model captures wave propagation (${\sim}\sqrt{k_s L_0/m_b}$), distributed inertia, and the impulsive loading during slack-to-taut transitions absent from rigid-link models. Rope rest lengths are sampled from $L_{\text{rest},i} \sim \mathcal{N}(\bar{L}_i, \sigma_{L_i}^2)$ to model manufacturing uncertainty, yielding up to 19\% asymmetry in the simulation.
 
 \subsection{Sensor Models and Wind Disturbance}
 

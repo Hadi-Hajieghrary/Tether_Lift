@@ -83,7 +83,7 @@ The per-agent computational load is ${\sim}0.7$\,MFLOP/s (dominated by the ESKF 
 
 \subsection{Cable Tension Analysis}
 
-The asymmetric cable lengths produce unequal load sharing during steady-state flight: Cable~0 (shortest, 0.914\,m) carries 14.9\,N mean tension versus Cable~1 (longest, 1.105\,m) at 10.2\,N---a 45\% imbalance accommodated without load-balancing communication. Table~\ref{tab:tension_stats} reports per-cable statistics. The total cable force ($38.1$\,N mean) exceeds the static payload weight ($m_Lg = 29.4$\,N) by 30\% due to dynamic loading and cable spring response.
+The asymmetric cable lengths produce unequal load sharing during steady-state flight: Cable~0 (shortest, 0.914\,m) carries 14.9\,N mean tension versus Cable~1 (longest, 1.105\,m) at 10.2\, N---a 45\% imbalance accommodated without load-balancing communication. Table~\ref{tab:tension_stats} reports per-cable statistics. The total cable force ($38.1$\,N mean) exceeds the static payload weight ($m_Lg = 29.4$\,N) by 30\% due to dynamic loading and cable spring response.
 
 \begin{table}[t]
   \centering
@@ -105,6 +105,7 @@ The asymmetric cable lengths produce unequal load sharing during steady-state fl
   \includegraphics[width=\columnwidth]{Figures/fig_cable_tensions.png}
   \caption{Cable tension profiles. The asymmetric cable lengths (0.914, 1.105, 0.995\,m) produce unequal steady-state load sharing: Cable~0 (shortest) carries 14.9\,N mean vs.\ Cable~1 (longest) at 10.2\,N---a 45\% imbalance accommodated without inter-agent coordination. Total tension exceeds static weight by 30\% due to dynamic loading.}
   \label{fig:cable_tensions}
+  \vspace{-5pt}
 \end{figure}
 
 \begin{table}[t]
@@ -113,16 +114,16 @@ The asymmetric cable lengths produce unequal load sharing during steady-state fl
   \label{tab:failure_modes}
   \begin{tabular}{@{}llccc@{}}
     \toprule
-    \textbf{Hazard} & \textbf{Mitigation} & \textbf{Limit} & \textbf{Observed} & \textbf{Active} \\
+    \textbf{Hazard} & \textbf{Mitigation} & \textbf{Limit} & \textbf{Observed}\\
     \midrule
-    Mass unknown & CL estimation & --- & $\hat{\theta} \!\to\! m_L/N$, 8\,s & --- \\
-    Wind disturb. & ESO feedfwd & --- & +43\% w/o & --- \\
-    Cable slack/overload & CBF tension & {[2, 60]\,N} & {[1.5, 26.3]\,N} & 0.2\% \\
-    Cable angle & CBF + anti-swing & $34.4^\circ$ & $48.1^\circ$ & 1.7\% \\
-    Excessive tilt & CBF tilt & $28.6^\circ$ & $25.1^\circ$ & None \\
-    Swing rate & CBF swing & 1.5\,rad/s & 1.6\,rad/s & Brief \\
-    Collision & CBF separation & 0.8\,m & $\geq 1.04$\,m & None \\
-    Sensor noise & ESKF fusion & --- & 6.9\,cm RMSE & --- \\
+    Mass unknown & CL estimation & --- & $\hat{\theta} \!\to\! m_L/N$, 8\,s\\
+    Wind disturbance. & ESO feedfwd & --- & +43\% w/o\\
+    Cable slack & CBF tension & {[2, 60]\,N} & {[1.5, 26.3]\,N}\\
+    Cable angle & CBF + anti-swing & $34.4^\circ$ & $48.1^\circ$\\
+    Excessive tilt & CBF tilt & $28.6^\circ$ & $25.1^\circ$\\
+    Swing rate & CBF swing & 1.5\,rad/s & 1.6\,rad/s\\
+    Collision & CBF separation & 0.8\,m & $\geq 1.04$\,m\\
+    Sensor noise & ESKF fusion & --- & 6.9\,cm RMSE\\
     \bottomrule
   \end{tabular}
 \end{table}
