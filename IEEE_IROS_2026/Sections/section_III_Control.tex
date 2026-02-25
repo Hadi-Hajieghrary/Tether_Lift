@@ -1,5 +1,5 @@
 % !TEX root = ../Main.tex
-The GPAC framework is a four-layer hierarchical controller that assigns each physical degree of freedom to a control layer operating at a progressively higher bandwidth (Fig.~\ref{fig:architecture}). Each agent~$i$ receives only: (i)~a shared reference trajectory~$p_d(t)$ (broadcast before flight), (ii)~its own IMU/GPS/barometer measurements, and (iii)~local cable tension $T_i$ and direction $q_i$. The position of the load is obtained via GPS broadcasts at 10\,Hz. No other state of the payload, no other agent's cable state, and no centralized coordinator are required.
+GPAC is a four-layer hierarchical controller assigning each physical degree of freedom to a control layer at progressively higher bandwidth (Fig.~\ref{fig:architecture}). Each agent~$i$ receives only: (i)~a shared trajectory~$p_d(t)$ broadcast before flight, (ii)~its own IMU/GPS/barometer measurements, and (iii)~local cable tension $T_i$ and direction $q_i$. Payload position is obtained via GPS broadcasts at 10\,Hz. No payload state, other cable states, or centralized coordinator is required. The control layers (1--3) require no inter-agent state exchange; only neighbor GPS positions are shared at 10\,Hz for collision avoidance (Layer~4), and the desired heading $\psi_d$ is part of the pre-broadcast trajectory parameters.
 
 \begin{figure}[t!]
 \centering
@@ -12,7 +12,7 @@ The GPAC framework is a four-layer hierarchical controller that assigns each phy
   \node[block, fill=blue!10] (L1) {Layer 1: Position\\+ Anti-Swing (50\,Hz)};
   \node[block, fill=red!10, below=0.35cm of L1] (CBF) {CBF Safety Filter\\(200\,Hz)};
   \node[block, fill=blue!10, below=0.35cm of CBF] (L2) {Layer 2: Attitude\\on SO(3) (200\,Hz)};
-  \node[block, fill=teal!10, right=1.2cm of L1] (L3) {Layer 3: CL\\Estimator (50\,Hz)};
+  \node[block, fill=teal!10, right=1.2cm of L1] (L3) {Layer 3: Mass\\Estimator (50\,Hz)};
   \node[block, fill=teal!10, right=1.2cm of CBF] (L4) {Layer 4:\\ESO ($\omega_0\!=\!50$)};
   \node[block, fill=green!8, right=1.2cm of L2] (ESKF) {ESKF Sensor\\Fusion (200\,Hz)};
   \node[block, fill=gray!10, below=0.35cm of L2, minimum width=7.2cm] (plant) {Quadrotor$_i$ + Bead-Chain Cable + Payload};
@@ -26,21 +26,40 @@ The GPAC framework is a four-layer hierarchical controller that assigns each phy
   \draw[arr, dashed, gray] (plant.east) -- ++(0.3,0) |- node[right, near start, font=\scriptsize, text=gray]{sensors} (ESKF.south);
 \end{tikzpicture}
 }
-\caption{GPAC per-agent architecture. Blue: control cascade. Red: CBF safety overlay. Teal: estimation. Green: sensor fusion. Each agent executes this pipeline independently; no payload, cable, or estimator states are exchanged (only neighbor GPS positions for collision avoidance).}
+\caption{GPAC per-agent architecture. Blue: control cascade. Red: CBF overlay. Teal: estimation. Green: sensor fusion. Each agent executes independently; only neighbor GPS positions are exchanged (for collision avoidance).}
 \label{fig:architecture}
 \end{figure}
 
+\subsection{Geometric Error Functions}
+
+The singularity-free error functions operating on $\SOthree$ and $\Sph^2$ are:
+\begin{align}
+  e_{R_i} &= \tfrac{1}{2}(R_{d_i}^\top R_i - R_i^\top R_{d_i})^\vee, \label{eq:eR}\\
+  \Psi_{q_i} &= 1 - q_{d_i} \cdot q_i \in [0,2], \label{eq:psi_q}\\
+  e_{q_i} &= P(q_i)\,q_{d_i} \in T_{q_i}\Sph^2, \label{eq:eq}
+\end{align}
+where $e_{R_i}$ is the attitude error on $\SOthree$~\cite{lee2010geometric}, $\Psi_{q_i}$ is the cable configuration error on $\Sph^2$~\cite{lee2018geometric}, and $e_{q_i}$ is the negative gradient of $\Psi_{q_i}$ restricted to the tangent space $T_{q_i}\Sph^2$. These are used throughout the control and safety layers that follow.
+
 \subsection{Layer 1: Position Tracking and Anti-Swing Control}
 
-The outermost layer (${\sim}50$\,Hz) computes a desired thrust vector: $F_{\text{des},i} = F_{\text{fb},i} + F_{\text{ff},i} + F_{\text{cable},i} + F_{\text{swing},i} + F_{\text{eso},i}$, combining five physically motivated components. The PID trajectory tracking feedback (with per-axis anti-windup at $|e_{I,k}| \leq 2.0$) is $F_{\text{fb},i} = -K_p\,e_{p_i} - K_d\,e_{v_i} - K_i\,e_{I_i}$,with $K_p\!=\!\diag(6,6,8)$, $K_d\!=\!\diag(8,8,10)$, $K_i\!=\!\diag(0.1,0.1,0.2)$. The feedforward term compensates gravity and the nominal trajectory: $F_{\text{ff},i} = m_Q(a_{d_i} + ge_3)$.
+The outermost layer ($\sim$50\,Hz) computes the total desired force as a sum of feedback, feedforward, cable compensation, anti-swing, and ESO terms:
+\begin{equation*}
+  F_{\text{des},i} = F_{\text{fb},i} + F_{\text{ff},i} + F_{\text{cable},i} + F_{\text{swing},i} + F_{\text{eso},i}.
+\end{equation*}
+PID tracking feedback with per-axis anti-windup is
+$F_{\text{fb},i} = -K_p\,e_{p_i} - K_d\,e_{v_i} - K_i\,e_{I_i}$,
+with gains $K_p\!=\!\diag(6,6,8)$, $K_d\!=\!\diag(8,8,10)$, $K_i\!=\!\diag(0.1,0.1,0.2)$. Feedforward compensates gravity and nominal trajectory: $F_{\text{ff},i} = m_Q(a_{d_i} + ge_3)$.
 
-Cable tension compensation prevents the position controller from treating cable force as a disturbance: $F_{\text{cable},i} = \kappa_T(t)\,T_i\,q_i$, where $\kappa_T(t) = \min\!\bigl(1,\,(t - t_{\text{taut},i})/\Delta_{\text{ramp}}\bigr)$,
-and $t_{\text{taut},i}$ is the time cable~$i$ first reaches $T_i \geq 1.0$\,N and $\Delta_{\text{ramp}} = 2$\,s. The gain ramp gradually enables tension compensation using only the \emph{measured} cable force---no knowledge of $m_L$ or $N$ is required. This prevents impulsive loading during the slack-to-taut transition while remaining fully consistent with the decentralized estimation pipeline.
+Cable tension compensation prevents treating cable force as disturbance:
+$F_{\text{cable},i} = \kappa_T(t)\,T_i\,q_i$,
+where $\kappa_T(t) = \min\!\bigl(1,\,(t - t_{\text{taut},i})/\Delta_{\text{ramp}}\bigr)$,
+with $t_{\text{taut},i}$ the time cable~$i$ reaches $T_i \geq 1.0$\,N and $\Delta_{\text{ramp}} = 2$\,s. The ramped gain uses only \emph{measured} cable force---no knowledge of $m_L$ or $N$ is required---preventing impulsive loading during the slack-to-taut transition while remaining fully decentralized.
 
-Anti-swing control suppresses pendular oscillations intrinsically on $\Sph^2$, i.e. $F_{\text{swing},i} = k_q\,e_{q_i} - k_\omega\,\omega_{q_i}$,
-with $k_q\!=\!4.0$, $k_\omega\!=\!2.0$ ~\cite{lee2018geometric}. Here $e_{q_i}$~\eqref{eq:eq} steers $q_i \to q_{d_i}$ along the geodesic and $\omega_{q_i} \in T_{q_i}\Sph^2$ is the cable angular velocity. Together, these terms reduce $\Psi_{q_i}$ monotonically in the absence of external perturbation. The ESO disturbance estimate (Layer~4) is fed forward as $F_{\text{eso},i} = m_Q\hat{d}_i$.
+Anti-swing control suppresses pendular oscillations on $\Sph^2$:
+$F_{\text{swing},i} = k_q\,e_{q_i} - k_\omega\,\omega_{q_i}$,
+with $k_q\!=\!4.0$, $k_\omega\!=\!2.0$~\cite{lee2018geometric}. Here $e_{q_i}$~\eqref{eq:eq} steers $q_i \to q_{d_i}$ along the geodesic and $\omega_{q_i} \in T_{q_i}\Sph^2$ is cable angular velocity. Together, these drive $\Psi_{q_i}$ monotonically toward zero in the absence of external perturbation. The ESO disturbance estimate (Layer~4) feeds forward as $F_{\text{eso},i} = m_Q\hat{d}_i$.
 
-The desired rotation $R_{d_i} \in \SOthree$ is extracted from $F_{\text{des},i}$ by aligning the body $z$-axis with the thrust direction~\cite{lee2010geometric}:
+Desired rotation $R_{d_i} \in \SOthree$ is extracted from $F_{\text{des},i}$ by aligning the body $z$-axis with the thrust direction~\cite{lee2010geometric}:
 \begin{equation}
   b_{3c} = \frac{F_{\text{des},i}}{\norm{F_{\text{des},i}}},\;\; b_{2c} = \frac{b_{3c} \times b_{1d}}{\norm{b_{3c} \times b_{1d}}},\;\; b_{1c} = b_{2c} \times b_{3c},
   \label{eq:Rd_extract}
@@ -49,12 +68,12 @@ with $b_{1d} = [\cos\psi_d,\, \sin\psi_d,\, 0]^\top$ setting the desired heading
 
 \subsection{Layer 2: Geometric Attitude Control on SO(3)}
 
-The inner attitude loop (200\,Hz) applies the geometric tracking controller~\cite{lee2010geometric}:
+The inner attitude loop (200\,Hz) uses the geometric tracking controller~\cite{lee2010geometric}:
 \begin{equation}
   \tau_i = -k_R\,e_{R_i} - k_\Omega\,e_{\Omega_i} + \Omega_i \times J\Omega_i,
   \label{eq:att_ctrl}
 \end{equation}
-with $k_R\!=\!8.0$, $k_\Omega\!=\!1.5$, and angular velocity error $e_{\Omega_i} = \Omega_i - R_i^\top R_{d_i}\Omega_{d_i}$. The first two terms provide proportional-derivative control on $\SOthree$; the third compensates gyroscopic coupling. The feedforward terms $\hatmap{\Omega_i}R_i^\top R_{d_i}\Omega_{d_i} - R_i^\top R_{d_i}\dot{\Omega}_{d_i}$ are omitted under the simplification $\Omega_{d_i} \approx 0$ (valid when the desired thrust direction varies slowly relative to the 200\,Hz attitude bandwidth).
+with $k_R\!=\!8.0$, $k_\Omega\!=\!1.5$, and $e_{\Omega_i} = \Omega_i - R_i^\top R_{d_i}\Omega_{d_i}$. The first two terms provide PD control on $\SOthree$; the third compensates gyroscopic coupling. Feedforward terms $\hatmap{\Omega_i}R_i^\top R_{d_i}\Omega_{d_i} - R_i^\top R_{d_i}\dot{\Omega}_{d_i}$ are omitted under the assumption $\Omega_{d_i} \approx 0$, valid when desired thrust varies slowly relative to the 200\,Hz attitude bandwidth.
 
 \begin{proposition}[Almost-global exponential stability~\cite{lee2010geometric}]\label{prop:lyap}
 Define the Lyapunov function
@@ -70,17 +89,17 @@ where $\Psi_{R_i} = \frac{1}{2}\tr(I - R_{d_i}^\top R_i)$ is the attitude config
 for a positive-definite $W = W(k_R, k_\Omega, J)$, yielding exponential convergence on the dense open set $\{\Psi_R < 2\} \subset \SOthree$.
 \end{proposition}
 
-\subsection{Layers 3--4: ESO and Concurrent Learning Estimator}
+\subsection{Layers 3--4: ESO and Mass Estimator}
 
-\textit{Layer~4} is a third-order Extended State Observer (ESO) per translational axis, modeling the dynamics as a double integrator with lumped disturbance $\ddot{p}_k = b_0 u_k + d_k(t)$, $b_0 = 1/m_Q$:
+\textit{Layer~4} is a third-order Extended State Observer (ESO) per translational axis, modeling dynamics as a double integrator with lumped disturbance $\ddot{p}_k = b_0 u_k + d_k(t)$, $b_0 = 1/m_Q$:
 \begin{equation}
   \dot{\hat{z}}_{1k} = \hat{z}_{2k} + 3\omega_0\tilde{x}_k,\;\; \dot{\hat{z}}_{2k} = \hat{z}_{3k} + 3\omega_0^2\tilde{x}_k + b_0 u_k,\;\; \dot{\hat{z}}_{3k} = \omega_0^3\tilde{x}_k,
   \label{eq:eso}
 \end{equation}
-with $\tilde{x}_k = x_k - \hat{z}_{1k}$ and all poles at $-\omega_0 = -50$\,rad/s (settling time ${\sim}0.1$\,s). The disturbance estimate $\hat{d}_i = [\hat{z}_{3x}, \hat{z}_{3y}, \hat{z}_{3z}]^\top$ is saturated to $|\hat{d}_{i,k}| \leq 20$\,m/s$^2$ and fed forward via $F_{\text{eso},i}$. Under bounded $\dot{d}$, the estimation error scales as $O(\sup|\dot{d}|/\omega_0)$~\cite{guo2013active}.
+with $\tilde{x}_k = x_k - \hat{z}_{1k}$ and poles at $-\omega_0 = -50$\,rad/s (settling $\sim$0.1\,s). The disturbance estimate $\hat{d}_i = [\hat{z}_{3x}, \hat{z}_{3y}, \hat{z}_{3z}]^\top$ is saturated to $|\hat{d}_{i,k}| \leq 20$\,m/s$^2$ and fed forward via $F_{\text{eso},i}$. Under bounded $\dot{d}$, estimation error scales as $O(\sup|\dot{d}|/\omega_0)$~\cite{guo2013active}.
 
-\textit{Layer~3} adaptively estimates $\hat{\theta}_i \approx m_L/N$ via concurrent learning~\cite{chowdhary2010concurrent}, providing the gravity compensation term $\hat{\theta}_i(ge_3 + \ddot{p}_d^L)$ to Layer~1. The full derivation is given in Section~\ref{sec:estimation}.
+\textit{Layer~3} adaptively estimates the payload mass share $\hat{\theta}_i \approx m_L/N$ via concurrent learning~\cite{chowdhary2010concurrent}, providing gravity compensation $\hat{\theta}_i(ge_3 + \ddot{p}_d^L)$ to Layer~1.
 
 \subsection{Cascade Stability and Fault Containment}
 
-The four-layer cascade exploits deliberate timescale separation: attitude ($k_R/J \approx 200$\,rad/s) $\gg$ ESO ($\omega_0 = 50$\,rad/s) $\gg$ position ($K_p/m_Q \approx 5$\,Hz). Standard singular perturbation arguments~\cite{khalil2002nonlinear} guarantee composite stability when this bandwidth ratio exceeds a computable threshold. The hierarchical structure also provides fault containment: mass estimation errors (Layer~3) affect only the feedforward in Layer~1 without corrupting attitude tracking; ESO transients are filtered before reaching the attitude loop; and CBF interventions are bounded by the tilt constraint (Section~\ref{sec:safety}). This modularity supports independent verification of each layer~\cite{koopman2017autonomous}.
+The cascade exploits timescale separation: attitude ($k_R/J \approx 200$\,rad/s) $\gg$ ESO ($\omega_0 = 50$\,rad/s) $\gg$ position ($\omega_p = \sqrt{K_p/m_Q} \approx 30$\,rad/s). Singular perturbation arguments guarantee composite stability when this bandwidth ratio exceeds a computable threshold~\cite{khalil2002nonlinear}. The hierarchy also provides fault containment: mass estimation errors (Layer~3) affect only feedforward in Layer~1 without corrupting attitude tracking; ESO transients are filtered before reaching attitude; CBF interventions are bounded by the tilt constraint (Section~\ref{sec:safety}). This modularity supports independent layer verification~\cite{koopman2017autonomous}.

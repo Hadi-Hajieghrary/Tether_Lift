@@ -173,6 +173,189 @@ def render_title_card(fig, duration_frames, fps):
 
 
 # ---------------------------------------------------------------------------
+# Scene: Drake-style 3D simulation view (white background, 1x speed)
+# ---------------------------------------------------------------------------
+def render_drake_view(data, fps=30, start_time=15.0, duration=20.0):
+    """Render a clean Drake/Meshcat-style 3D view at 1x speed.
+
+    White background, solid colored bodies, ground plane grid, no telemetry
+    panels. Shows the simulation as it would appear in Drake's Meshcat viewer.
+    """
+    fig = plt.figure(figsize=(19.20, 10.80), dpi=100)
+    fig.set_facecolor('white')
+
+    ax = fig.add_subplot(111, projection='3d')
+    ax.set_facecolor('#f5f5f5')
+
+    t = data['t']
+    traj = data['traj']
+    ref = data['ref']
+    nd = data['num_drones']
+    drone_colors_solid = ['#2176FF', '#FF6B35', '#22B573', '#B537F2', '#FFD23F',
+                          '#00B4D8', '#FF006E', '#3A0CA3'][:nd]
+    end_time = start_time + duration
+
+    # Axis setup
+    x_range = [ref[:, 0].min() - 1.0, ref[:, 0].max() + 1.0]
+    y_range = [ref[:, 1].min() - 1.0, ref[:, 1].max() + 1.0]
+    ax.set_xlim(x_range)
+    ax.set_ylim(y_range)
+    ax.set_zlim([-0.1, 4.5])
+    ax.set_xlabel('X (m)', fontsize=10, color='#333333', labelpad=8)
+    ax.set_ylabel('Y (m)', fontsize=10, color='#333333', labelpad=8)
+    ax.set_zlabel('Z (m)', fontsize=10, color='#333333', labelpad=8)
+    ax.tick_params(colors='#666666', labelsize=8)
+
+    # Style panes (light grey)
+    ax.xaxis.pane.fill = True
+    ax.yaxis.pane.fill = True
+    ax.zaxis.pane.fill = True
+    ax.xaxis.pane.set_facecolor('#eeeeee')
+    ax.yaxis.pane.set_facecolor('#e8e8e8')
+    ax.zaxis.pane.set_facecolor('#f0f0f0')
+    ax.xaxis.pane.set_edgecolor('#cccccc')
+    ax.yaxis.pane.set_edgecolor('#cccccc')
+    ax.zaxis.pane.set_edgecolor('#cccccc')
+    ax.grid(True, alpha=0.3, color='#aaaaaa')
+
+    # Ground plane
+    gx = np.linspace(x_range[0], x_range[1], 10)
+    gy = np.linspace(y_range[0], y_range[1], 10)
+    gx_m, gy_m = np.meshgrid(gx, gy)
+    ax.plot_surface(gx_m, gy_m, np.zeros_like(gx_m),
+                    alpha=0.15, color='#8B8B8B')
+    # Grid lines on ground
+    for x in np.arange(np.ceil(x_range[0]), np.floor(x_range[1]) + 1, 1.0):
+        ax.plot([x, x], y_range, [0, 0], color='#bbbbbb', lw=0.3, alpha=0.5)
+    for y in np.arange(np.ceil(y_range[0]), np.floor(y_range[1]) + 1, 1.0):
+        ax.plot(x_range, [y, y], [0, 0], color='#bbbbbb', lw=0.3, alpha=0.5)
+
+    # Reference trajectory (thin dashed)
+    ax.plot(ref[:, 0], ref[:, 1], ref[:, 2],
+            '--', color='#999999', lw=0.8, alpha=0.5)
+
+    # Render times at 1x speed
+    render_times = np.arange(start_time, end_time, 1.0 / fps)
+
+    dynamic_artists = []
+    trail_x, trail_y, trail_z = [], [], []
+    frames = []
+
+    for frame_idx, t_now in enumerate(render_times):
+        idx = min(np.searchsorted(t, t_now), len(t) - 1)
+
+        # Clear dynamic artists
+        for a in dynamic_artists:
+            try:
+                a.remove()
+            except (ValueError, AttributeError):
+                pass
+        dynamic_artists.clear()
+
+        lx = traj['load_x'].values[idx]
+        ly = traj['load_y'].values[idx]
+        lz = traj['load_z'].values[idx]
+
+        # Payload trail
+        trail_x.append(lx); trail_y.append(ly); trail_z.append(lz)
+        if len(trail_x) > 200:
+            trail_x.pop(0); trail_y.pop(0); trail_z.pop(0)
+        if len(trail_x) > 1:
+            ln = ax.plot(trail_x, trail_y, trail_z,
+                         color='#FF4444', alpha=0.3, lw=1.5)
+            dynamic_artists.extend(ln)
+
+        # Payload sphere (large red)
+        sc_l = ax.scatter([lx], [ly], [lz], c='#CC0000', s=150,
+                          marker='o', zorder=10, edgecolors='#880000', linewidths=0.8)
+        dynamic_artists.append(sc_l)
+
+        # Drones (quadrotor shape with oriented arms)
+        arm_length = 0.15  # half arm span [m]
+        for q in range(nd):
+            dx = traj[f'drone{q}_x'].values[idx]
+            dy = traj[f'drone{q}_y'].values[idx]
+            dz = traj[f'drone{q}_z'].values[idx]
+
+            # Get rotation matrix from quaternion
+            qw = traj[f'drone{q}_qw'].values[idx]
+            qx = traj[f'drone{q}_qx'].values[idx]
+            qy = traj[f'drone{q}_qy'].values[idx]
+            qz = traj[f'drone{q}_qz'].values[idx]
+            # Quaternion to rotation matrix
+            R = np.array([
+                [1 - 2*(qy**2 + qz**2), 2*(qx*qy - qw*qz), 2*(qx*qz + qw*qy)],
+                [2*(qx*qy + qw*qz), 1 - 2*(qx**2 + qz**2), 2*(qy*qz - qw*qx)],
+                [2*(qx*qz - qw*qy), 2*(qy*qz + qw*qx), 1 - 2*(qx**2 + qy**2)]
+            ])
+
+            # 4 arm directions in body frame (X-pattern)
+            body_arms = [
+                np.array([ arm_length,  arm_length, 0]),
+                np.array([-arm_length,  arm_length, 0]),
+                np.array([-arm_length, -arm_length, 0]),
+                np.array([ arm_length, -arm_length, 0]),
+            ]
+            pos = np.array([dx, dy, dz])
+
+            # Draw 4 arms
+            for arm_body in body_arms:
+                tip = pos + R @ arm_body
+                ln_arm = ax.plot([dx, tip[0]], [dy, tip[1]], [dz, tip[2]],
+                                 color='#333333', lw=2.0, solid_capstyle='round')
+                dynamic_artists.extend(ln_arm)
+                # Rotor disc at tip
+                sc_rotor = ax.scatter([tip[0]], [tip[1]], [tip[2]],
+                                      c=drone_colors_solid[q], s=35, marker='o',
+                                      zorder=10, edgecolors='#333333', linewidths=0.3)
+                dynamic_artists.append(sc_rotor)
+
+            # Central body
+            sc_d = ax.scatter([dx], [dy], [dz], c=drone_colors_solid[q], s=60,
+                              marker='o', zorder=11, edgecolors='#222222', linewidths=0.6)
+            dynamic_artists.append(sc_d)
+
+            # Cable (rope to payload)
+            ln_c = ax.plot([dx, lx], [dy, ly], [dz, lz],
+                           color='#666666', lw=1.0, alpha=0.5)
+            dynamic_artists.extend(ln_c)
+
+            # Drone label
+            txt_d = ax.text(dx, dy, dz + 0.25, f'Q{q}',
+                            fontsize=7, ha='center', color=drone_colors_solid[q],
+                            fontweight='bold')
+            dynamic_artists.append(txt_d)
+
+        # Camera rotation (slow)
+        ax.view_init(elev=22 + 3 * np.sin((t_now - start_time) / 10),
+                     azim=-55 + (t_now - start_time) * 1.5)
+
+        # Title
+        sim_t = t_now
+        ax.set_title(
+            f'Drake Multibody Simulation  |  N = {nd} Quadrotors  |  '
+            f't = {sim_t:.1f} s  |  1x speed',
+            fontsize=13, pad=10, color='#333333', fontweight='bold')
+
+        # "Simulated in Drake" watermark
+        fig.text(0.02, 0.02, 'Drake Toolbox (MIT)  |  Bead-chain cables  |  '
+                 'Dryden wind turbulence  |  ESKF sensor fusion',
+                 fontsize=8, color='#aaaaaa', ha='left')
+
+        fig.canvas.draw()
+        buf = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)
+        buf = buf.reshape(fig.canvas.get_width_height()[::-1] + (4,))
+        frames.append(buf[:, :, :3].copy())
+
+        if frame_idx % 50 == 0:
+            print(f'  Drake view frame {frame_idx}/{len(render_times)} '
+                  f'(t={t_now:.1f}s)')
+
+    plt.close(fig)
+    return frames
+
+
+# ---------------------------------------------------------------------------
 # Scene: Main mission animation
 # ---------------------------------------------------------------------------
 def create_mission_figure():
@@ -609,13 +792,19 @@ def main():
     plt.close(title_fig)
     print(f'  {len(title_frames)} frames')
 
-    # --- Scene 2: Full mission (N=3) ---
+    # --- Scene 2: Drake-style 3D view for N=3 (20s at 1x speed) ---
+    print(f'Rendering Drake view N={data["num_drones"]} (20s @ 1x from t=15s)...')
+    drake_frames = render_drake_view(data, fps=fps, start_time=15.0, duration=20.0)
+    all_frames.extend(drake_frames)
+    print(f'  {len(drake_frames)} frames')
+
+    # --- Scene 3: Full mission with telemetry (N=3) ---
     print(f'Rendering N={data["num_drones"]} mission ({args.speed}x speed)...')
     mission_frames = render_mission(data, fps=fps, speed=args.speed)
     all_frames.extend(mission_frames)
     print(f'  {len(mission_frames)} frames')
 
-    # --- Scene 3: Scalability demonstration (N=5) ---
+    # --- Scene 4: Scalability demonstration (N=5) ---
     if args.data_dir_5q:
         print(f'\nLoading 5-quad data from {args.data_dir_5q}...')
         data_5q = load_all_data(args.data_dir_5q)
@@ -641,7 +830,13 @@ def main():
         plt.close(trans_fig)
         print(f'  Transition card: {fps * 3} frames')
 
-        # Render 5-quad mission
+        # Drake-style 3D view for N=5 (20s at 1x speed)
+        print(f'Rendering Drake view N={data_5q["num_drones"]} (20s @ 1x from t=15s)...')
+        drake_5q_frames = render_drake_view(data_5q, fps=fps, start_time=15.0, duration=20.0)
+        all_frames.extend(drake_5q_frames)
+        print(f'  {len(drake_5q_frames)} frames')
+
+        # Full mission with telemetry (N=5)
         print(f'Rendering N={data_5q["num_drones"]} mission ({args.speed}x speed)...')
         mission_5q_frames = render_mission(data_5q, fps=fps, speed=args.speed)
         all_frames.extend(mission_5q_frames)

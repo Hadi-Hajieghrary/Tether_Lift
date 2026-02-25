@@ -121,6 +121,7 @@ namespace quad_rope_lift
         unsigned int cli_seed = 42;
         bool headless = false;
         double cli_duration = 50.0;
+        int cli_num_quads = 3;
 
         for (int i = 1; i < argc; ++i) {
             if (std::strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
@@ -129,11 +130,14 @@ namespace quad_rope_lift
                 headless = true;
             } else if (std::strcmp(argv[i], "--duration") == 0 && i + 1 < argc) {
                 cli_duration = std::atof(argv[++i]);
+            } else if (std::strcmp(argv[i], "--num-quads") == 0 && i + 1 < argc) {
+                cli_num_quads = std::atoi(argv[++i]);
             } else if (std::strcmp(argv[i], "--help") == 0) {
-                std::cout << "Usage: ./quad_rope_lift [--seed N] [--headless] [--duration T]\n"
-                          << "  --seed N      Random seed (default: 42)\n"
-                          << "  --headless    Disable visualization\n"
-                          << "  --duration T  Simulation duration [s] (default: 50)\n";
+                std::cout << "Usage: ./quad_rope_lift [--seed N] [--headless] [--duration T] [--num-quads N]\n"
+                          << "  --seed N        Random seed (default: 42)\n"
+                          << "  --headless      Disable visualization\n"
+                          << "  --duration T    Simulation duration [s] (default: 50)\n"
+                          << "  --num-quads N   Number of quadcopters (default: 3)\n";
                 return 0;
             }
         }
@@ -191,8 +195,8 @@ namespace quad_rope_lift
         // Multi-Quadcopter Configuration
         // =========================================================================
 
-        // Number of quadcopters (2, 3, or 4 recommended)
-        const int num_quadcopters = 3;
+        // Number of quadcopters (configurable via --num-quads)
+        const int num_quadcopters = cli_num_quads;
 
         // Initial hover altitude (before ascent)
         const double initial_altitude = 1.2;  // [m]
