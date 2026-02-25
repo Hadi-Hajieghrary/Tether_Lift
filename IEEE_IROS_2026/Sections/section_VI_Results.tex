@@ -44,9 +44,10 @@ Table~\ref{tab:tracking} summarizes payload tracking errors for the baseline see
 
 \subsection{Estimation and Adaptive Convergence}
 
-The ESKF achieves quadrotor position RMSE consistent with the GPS noise floor, with increased error during cornering. Low variance across Monte Carlo seeds confirms that ESKF accuracy is determined by sensor noise, not cable geometry. The decentralized load estimator (49.5\,cm RMSE) is $4\times$ worse than a centralized oracle (12.4\,cm), reflecting the single-cable observability limitation discussed in Section~\ref{sec:estimation}. The centralized baseline requires $\sim$29\,kbps bandwidth.
+The ESKF achieves quadrotor position RMSE consistent with the GPS noise floor, with increased error during cornering. Low variance across Monte Carlo seeds confirms that ESKF accuracy is determined by sensor noise rather than cable geometry. The decentralized load estimator (49.5\,cm RMSE) is $4\times$ worse than a centralized oracle (12.4\,cm), reflecting the single-cable observability limitation discussed in Section~\ref{sec:estimation}. The centralized baseline requires $\sim$29\,kbps bandwidth.
 
 Concurrent learning converges within $\sim$8\,s, accumulating $\sim$30 informative samples during ascent. Without concurrent learning ($\rho = 0$), settling extends significantly with larger oscillation (see Table~\ref{tab:failure_modes}).
+
 
 \begin{figure}[t]
   \centering
