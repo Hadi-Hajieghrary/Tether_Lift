@@ -19,7 +19,7 @@ with kinematics $\dot{R}_i = R_i \hatmap{\Omega}_i$, where $f_i$ is scalar thrus
 \end{equation}
 where $F_i^L$ is the cable force from the $i$-th rope at the payload attachment point, and $F^{\text{contact}}$ denotes ground normal and Coulomb friction forces.
 
-The cable direction $q_i \in \Sph^2$ from payload to quadrotor evolves as $\dot{q}_i = \omega_{q_i} \times q_i$ with $\omega_{q_i} \in T_{q_i}\Sph^2$. Under constraint $p_i = p_L + R_L\rho_i^L + L_i q_i$ ($\rho_i^L$: attachment offset in payload frame), swing dynamics on $\Sph^2$ are governed by projected quadrotor acceleration and gravitational restoring torque.
+The cable direction $q_i \in \Sph^2$ from payload to quadrotor evolves as $\dot{q}_i = \omega_{q_i} \times q_i$ with $\omega_{q_i} \in T_{q_i}\Sph^2$. Under constraint $p_i = p_L + R_L\rho_i^L + L_i q_i$ ($\rho_i^L$: attachment offset in payload frame), swing dynamics on $\Sph^2$ are governed by projected quadrotor acceleration and gravitational restoring torque (the singularity-free error functions parameterizing these dynamics are defined in Section~\ref{sec:control}).
 
 \subsection{Bead-Chain Cable Model}
 

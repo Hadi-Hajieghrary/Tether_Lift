@@ -2,14 +2,14 @@
 \begin{figure}[t!]
   \centering
   \includegraphics[width=0.84\columnwidth]{Figures/fig_cbf_activation.png}
-  \caption{CBF activation. \textit{Top:} Tension margin (distance to $T_{\min}$) for all cables. \textit{Middle:} Cable angle margin (distance to $\theta_{\max} = 34.4^\circ$); shaded regions indicate CBF activation during aggressive cornering (1.7\% of time). \textit{Bottom:} Tilt margin (never violated). Orange regions denote constraint activation.}
+  \caption{CBF activation. \textit{Top:} Tension margin (distance to $T_{\min}$) for all cables. \textit{Middle:} Cable angle margin (distance to $\zeta_{\max} = 34.4^\circ$); shaded regions indicate CBF activation during aggressive cornering (1.7\% of time). \textit{Bottom:} Tilt margin (never violated). Orange regions denote constraint activation.}
   \label{fig:cbf_activation}
 \end{figure}
 
 \begin{figure}[t!]
   \centering
   \includegraphics[width=0.84\columnwidth]{Figures/fig_safety_constraints.png}
-  \caption{Safety constraint satisfaction. \textit{Top:} Cable angle from vertical for each cable, with the CBF limit $\theta_{\max} = 34.4^\circ$. Brief excursions above the limit during aggressive cornering remain within the ISSf margin. \textit{Bottom:} Quadrotor tilt angle with limit $\phi_{\max} = 28.6^\circ$; the constraint is never violated.}
+  \caption{Safety constraint satisfaction. \textit{Top:} Cable angle from vertical for each cable, with the CBF limit $\zeta_{\max} = 34.4^\circ$. Brief excursions above the limit during aggressive cornering remain within the ISSf margin. \textit{Bottom:} Quadrotor tilt angle with limit $\phi_{\max} = 28.6^\circ$; the constraint is never violated.}
   \label{fig:safety_constraints}
 \end{figure}
 
@@ -18,12 +18,12 @@ A modular CBF layer enforces operational constraints via minimal post-processing
 The safety filter operates on the force $f_i \in \R^3$ from Layer~1. Abstracting translational dynamics~\eqref{eq:quad_trans} as $m_Q\ddot{p}_i = f_i + w_i(t)$ (affine in control, with lumped disturbance $w_i$ from ESO), five barrier functions encode the safe set $\mathcal{C}_k = \{x \mid h_k(x) \geq 0\}$:
 \begin{align}
   h_T^{\text{low}} &= T_i - T_{\min},\;\; h_T^{\text{up}} = T_{\max} - T_i & \text{(tautness)}, \label{eq:h_taut}\\
-  h_\theta &= \cos\theta_{\max} - \cos\theta_i & \text{(cable angle)}, \label{eq:h_angle}\\
+  h_\zeta &= \cos\zeta_{\max} - \cos\zeta_i & \text{(cable angle)}, \label{eq:h_angle}\\
   h_\omega &= \omega_{\max}^2 - \norm{\omega_{q_i}}^2 & \text{(swing rate)}, \label{eq:h_swing}\\
   h_{\text{tilt}} &= \cos\phi_{\max} - \cos\phi_i & \text{(vehicle tilt)}, \label{eq:h_tilt}\\
   h_{\text{col}} &= \norm{p_i - p_j}^2 - d_{\min}^2 & \text{(collision)}, \label{eq:h_col}
 \end{align}
-with $T_{\min}\!=\!2$\,N, $T_{\max}\!=\!60$\,N, $\theta_{\max}\!=\!0.6$\,rad ($34.4^\circ$), $\omega_{\max}\!=\!1.5$\,rad/s, $\phi_{\max}\!=\!0.5$\,rad ($28.6^\circ$), $d_{\min}\!=\!0.8$\,m. The first two barriers maintain cable tension within $[T_{\min}, T_{\max}]$; $h_\theta$ and $h_\omega$ limit cable angle and swing rate; $h_{\text{tilt}}$ bounds vehicle roll/pitch; and $h_{\text{col}}$ prevents inter-agent collision.
+with $T_{\min}\!=\!2$\,N, $T_{\max}\!=\!60$\,N, $\zeta_{\max}\!=\!0.6$\,rad ($34.4^\circ$), $\omega_{\max}\!=\!1.5$\,rad/s, $\phi_{\max}\!=\!0.5$\,rad ($28.6^\circ$), $d_{\min}\!=\!0.8$\,m. Cable angle is denoted $\zeta_i$ to distinguish it from the adaptive parameter $\theta = m_L/N$ (Section~\ref{sec:estimation}). The first two barriers maintain cable tension within $[T_{\min}, T_{\max}]$; $h_\zeta$ and $h_\omega$ limit cable angle and swing rate; $h_{\text{tilt}}$ bounds vehicle roll/pitch; and $h_{\text{col}}$ prevents inter-agent collision.
 
 For collision~\eqref{eq:h_col}, the second derivative involves both $f_i$ and $f_j$. In the decentralized setting, agent~$i$ treats neighbor acceleration as a bounded disturbance and enforces a conservative one-sided HOCBF using only its own force, with the disturbance absorbed into the ISSf margin.
 
@@ -65,5 +65,5 @@ Thus $\Psi_R(R_i, R_d^{\text{safe}}) \leq 1 - \cos(0.01 + 1.0) < 0.54 < 1$, well
 \end{proof}
 
 \begin{remark}[Timescale separation]\label{rem:timescale}
-Compatibility relies on three well-separated timescales: \emph{fast} attitude ($k_R/J \approx 200$\,rad/s, settling $\sim$5\,ms), \emph{medium} safety filter (Butterworth cutoff $2\pi \times 15 \approx 94$\,rad/s), and \emph{slow} position/cable dynamics ($\sqrt{g/L} \approx 3$\,rad/s). Per~\cite[Ch.~11]{khalil2002nonlinear}, singular perturbation requires $\omega_{\text{att}}/\omega_{\text{CBF}} > 1/\epsilon$ for small $\epsilon$; here $200/94 \approx 2.1$ satisfies this with $\epsilon \approx 0.47$, and the attitude controller resolves any step change in $R_d^{\text{safe}}$ within one CBF cycle ($5$\,ms $\ll$ $11$\,ms filter delay). The Butterworth filter also rate-limits CBF force modifications, ensuring $R_d^{\text{safe}}$ varies slowly enough to maintain the $\Omega_{d_i} \approx 0$ simplification in~\eqref{eq:att_ctrl}. This bandwidth hierarchy $\omega_{\text{att}} \gg \omega_{\text{CBF}} \gg \omega_{\text{pos}}$ makes the layered architecture composable.
+Compatibility relies on three timescales: \emph{fast} attitude ($k_R/J \approx 200$\,rad/s, settling $\sim$5\,ms), \emph{medium} safety filter (Butterworth cutoff $2\pi \times 15 \approx 94$\,rad/s), and \emph{slow} position/cable dynamics ($\sqrt{g/L} \approx 3$\,rad/s). The attitude-to-CBF bandwidth ratio $200/94 \approx 2.1$ is moderate---classical singular perturbation~\cite[Ch.~11]{khalil2002nonlinear} typically requires this ratio to be $\gg\!1$---so we rely instead on a \emph{practical composability} argument: the attitude settling time ($\sim$5\,ms) is less than one CBF Butterworth delay ($\sim$11\,ms), guaranteeing that the attitude controller resolves any step change in $R_d^{\text{safe}}$ within one safety filter cycle. Combined with the Butterworth rate-limiting, which ensures $\norm{\dot{R}_d^{\text{safe}}} \leq 2\pi f_c \cdot 2\phi_{\max}$, the $\Omega_{d_i} \approx 0$ simplification in~\eqref{eq:att_ctrl} remains valid. The stronger separation $\omega_{\text{att}}/\omega_{\text{pos}} \approx 200/3 \approx 67$ does satisfy formal singular perturbation, ensuring the position-attitude cascade is stable; the CBF operates within this well-separated hierarchy.
 \end{remark}
