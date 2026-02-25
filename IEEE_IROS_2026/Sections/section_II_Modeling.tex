@@ -1,47 +1,42 @@
 % !TEX root = ../Main.tex
-The world frame~$\mathcal{W}$ has $e_3$ aligned upward. Rotations lie in $\SOthree$; the hat map $(\cdot)^{\wedge}:\R^3 \to \sothree$ satisfies $\hatmap{v}w = v \times w$. Cable directions $q_i \in \Sph^2$ have tangent-space projection $P(q) = I_3 - qq^\top$. The full system evolves on
+The world frame~$\mathcal{W}$ has $e_3$ upward. Rotations lie in $\SOthree$; the hat map $(\cdot)^{\wedge}:\R^3 \to \sothree$ satisfies $\hatmap{v}w = v \times w$. Cable directions $q_i \in \Sph^2$ have tangent projection $P(q) = I_3 - qq^\top$. The system evolves on
 \begin{equation}
-  \mathcal{Q} = \underbrace{\SEthree}_{\text{payload}} \times \prod_{i=1}^{N}\!\underbrace{\SEthree \times \Sph^2}_{\text{drone }i\text{ + cable}}, \quad \dim(\mathcal{Q}) = 6 + 8N.
+  \mathcal{Q} = \underbrace{\SEthree}_{\text{payload}} \times \prod_{i=1}^{N}\!\underbrace{\SEthree \times \Sph^2}_{\text{quadrotor }i\text{ + cable}}, \quad \dim(\mathcal{Q}) = 6 + 8N.
   \label{eq:manifold}
 \end{equation}
-The singularity-free geometric error functions are:
-\begin{align}
-  e_{R_i} &= \tfrac{1}{2}(R_{d_i}^\top R_i - R_i^\top R_{d_i})^\vee, \label{eq:eR}\\
-  \Psi_{q_i} &= 1 - q_{d_i} \cdot q_i \in [0,2], \label{eq:psi_q}\\
-  e_{q_i} &= P(q_i)\,q_{d_i} \in T_{q_i}\Sph^2, \label{eq:eq}
-\end{align}
-where $e_{q_i}$ is the negative gradient of $\Psi_{q_i}$ restricted to $T_{q_i}\Sph^2$.
 
 \subsection{Quadrotor and Payload Dynamics}
 
-Each of $N$~identical quadrotors (mass $m_Q$, body-frame inertia $J$) obeys
+$N$~identical quadrotors (mass $m_Q$, inertia $J$) obey
 \begin{align}
   m_Q \ddot{p}_i &= m_Q g\, e_3 + f_i R_i e_3 + F_i^{\text{cable}} + F_i^{\text{wind}}, \label{eq:quad_trans}\\
   J\dot{\Omega}_i &= -\Omega_i \times J\Omega_i + \tau_i + \tau_i^{\text{ext}}, \label{eq:quad_rot}
 \end{align}
-with kinematics $\dot{R}_i = R_i \hatmap{\Omega}_i$, where $f_i$ is the scalar thrust magnitude, $\tau_i$ is the body-frame control torque, $F_i^{\text{cable}}$ is the cable tension force, and $F_i^{\text{wind}}$ is the aerodynamic disturbance. Gravity acts as $-ge_3$ with the thrust $f_i R_i e_3$ directed along the body $z$-axis. The payload (mass $m_L$, position $p_L$) satisfies
+with kinematics $\dot{R}_i = R_i \hatmap{\Omega}_i$, where $f_i$ is scalar thrust, $\tau_i$ is control torque, $F_i^{\text{cable}}$ is cable tension, and $F_i^{\text{wind}}$ is aerodynamic disturbance. The payload (mass $m_L$, position $p_L$) satisfies
 \begin{equation}
   m_L \ddot{p}_L = -m_L g\, e_3 + \textstyle\sum_{i=1}^{N} F_i^L + F^{\text{contact}} + F_L^{\text{wind}},
   \label{eq:payload}
 \end{equation}
-where $F_i^L$ is the cable force from the $i$-th rope at the payload attachment point, and $F^{\text{contact}}$ denotes the ground normal and Coulomb friction forces.
+where $F_i^L$ is the cable force from the $i$-th rope at the payload attachment point, and $F^{\text{contact}}$ denotes ground normal and Coulomb friction forces.
 
-The cable direction $q_i \in \Sph^2$ from the payload toward the quadrotor evolves as $\dot{q}_i = \omega_{q_i} \times q_i$ with $\omega_{q_i} \in T_{q_i}\Sph^2$. Under the constraint $p_i = p_L + R_L\rho_i^L + L_i q_i$ (where $\rho_i^L$ is the attachment offset in the payload body frame), the swing dynamics on $\Sph^2$ are governed by the projected quadrotor acceleration and gravitational restoring torque.
+The cable direction $q_i \in \Sph^2$ from payload to quadrotor evolves as $\dot{q}_i = \omega_{q_i} \times q_i$ with $\omega_{q_i} \in T_{q_i}\Sph^2$. Under constraint $p_i = p_L + R_L\rho_i^L + L_i q_i$ ($\rho_i^L$: attachment offset in payload frame), swing dynamics on $\Sph^2$ are governed by projected quadrotor acceleration and gravitational restoring torque.
 
 \subsection{Bead-Chain Cable Model}
 
-Each cable is discretized as $n_b$ point-mass beads connected by $n_b+1$ tension-only spring-damper segments. Let $b_0$ denote the quadrotor attachment, $b_1,\ldots,b_{n_b}$ the bead positions, and $b_{n_b+1}$ the payload attachment. Each segment has rest length $L_0 = L_{\text{rest}}/(n_b+1)$, stretch $\Delta_j = \norm{b_{j-1}-b_j} - L_0$, and unit direction $\hat{e}_j = (b_{j-1}-b_j)/\norm{b_{j-1}-b_j}$. The tension-only force law is $T_j = k_s \Delta_j + c_s [\dot{\Delta}_j]^+$ if $\Delta_j > 0$ and $0$ otherwise. The notation $[\cdot]^+ = \max(\cdot,0)$ restricts damping to the stretching phase. The segment stiffness is derived from a maximum-stretch design criterion ($\epsilon_{\max} = 15\%$):
+Rigid-link cable models neglect compliance, wave propagation, and slack-to-taut transitions that significantly affect transport behavior. To capture these effects, each cable is discretized as $n_b$ point-mass beads connected by $n_b+1$ tension-only spring-damper segments.
+
+Let $b_0$ be the quadrotor attachment, $b_1,\ldots,b_{n_b}$ the bead positions, and $b_{n_b+1}$ the payload attachment. Each segment has rest length $L_0 = L_{\text{rest}}/(n_b+1)$, stretch $\Delta_j = \norm{b_{j-1}-b_j} - L_0$, and unit direction $\hat{e}_j = (b_{j-1}-b_j)/\norm{b_{j-1}-b_j}$. The tension-only force law is $T_j = k_s \Delta_j + c_s [\dot{\Delta}_j]^+$ when $\Delta_j > 0$, and $0$ when $\Delta_j \leq 0$, where $[\cdot]^+ = \max(\cdot,0)$ restricts damping to stretching. Segment stiffness derives from a maximum-stretch criterion ($\epsilon_{\max} = 15\%$):
 \begin{equation}
   k_s = \frac{F_{\text{load}}}{L_{\text{rest}}\,\epsilon_{\max}} \cdot (n_b + 1), \quad c_s = c_{\text{ref}}\sqrt{k_s/k_{\text{ref}}},
   \label{eq:stiffness}
 \end{equation}
-with $F_{\text{load}} = m_L g/N$ and reference values $k_{\text{ref}} = 300$\,N/m, $c_{\text{ref}} = 15$\,N$\cdot$s/m. Each bead (mass $m_b = m_{\text{rope}}/n_b$, with $m_{\text{rope}} = 0.2$\,kg) obeys $m_b\ddot{b}_j = F_j - F_{j+1} - m_bg\,e_3$. This model captures wave propagation (${\sim}\sqrt{k_s L_0/m_b}$), distributed inertia, and the impulsive loading during slack-to-taut transitions absent from rigid-link models. Rope rest lengths are sampled from $L_{\text{rest},i} \sim \mathcal{N}(\bar{L}_i, \sigma_{L_i}^2)$ to model manufacturing uncertainty, yielding up to 19\% asymmetry in the simulation.
+with $F_{\text{load}} = m_L g/N$ and $k_{\text{ref}} = 300$\,N/m, $c_{\text{ref}} = 15$\,N$\cdot$s/m. Each bead (mass $m_b = m_{\text{rope}}/n_b$, $m_{\text{rope}} = 0.2$\,kg) obeys $m_b\ddot{b}_j = F_j - F_{j+1} - m_bg\,e_3$. The model supports wave propagation ($\sim\sqrt{k_s L_0/m_b}$), distributed inertia, and impulsive loading during slack-to-taut transitions.
 
 \subsection{Sensor Models and Wind Disturbance}
 
-Each quadrotor carries an onboard sensor suite. The \emph{IMU} (200\,Hz) provides body-frame specific force $\tilde{a}_i = R_i^\top(\ddot{p}_i + ge_3) + b_{a_i} + n_{a_i}$ and angular velocity $\tilde{\omega}_i = \Omega_i + b_{g_i} + n_{g_i}$ with noise densities $\sigma_a = 0.004$\,m/s$^2$/$\sqrt{\text{Hz}}$, $\sigma_g = 5\times 10^{-4}$\,rad/s/$\sqrt{\text{Hz}}$, and Gauss--Markov biases ($\dot{b} = -b/\tau + \eta$, $\tau = 3600$\,s). The \emph{GPS receiver} (10\,Hz) provides position with $\sigma_{xy} = 0.02$\,m, $\sigma_z = 0.05$\,m, and configurable dropout probability. The \emph{barometric altimeter} (25\,Hz) has a three-component noise model: white noise ($\sigma_w = 0.3$\,m), correlated noise ($\tau_c = 5$\,s), and slow bias drift (0.002\,m/s), with 0.1\,m quantization. Cable tension $T_i$ is measured via a load cell ($\sigma_T = 0.5$\,N) and cable direction $q_i$ via a 2-axis encoder ($\sigma_q = 0.02$\,rad).
+Each quadrotor carries an onboard sensor suite (parameters in Table~\ref{tab:params}). The \emph{IMU} provides body-frame specific force $\tilde{a}_i = R_i^\top(\ddot{p}_i + ge_3) + b_{a_i} + n_{a_i}$ and angular velocity $\tilde{\omega}_i = \Omega_i + b_{g_i} + n_{g_i}$ with Gauss--Markov biases ($\dot{b} = -b/\tau + \eta$, $\tau = 3600$\,s). The \emph{GPS} provides position with dropout probability. The \emph{barometer} has three-component noise (white, correlated, slow drift) with 0.1\,m quantization. Cable tension $T_i$ is measured via load cell and direction $q_i$ via 2-axis encoder.
 
-Wind follows the Dryden turbulence spectrum (MIL-F-8785C)~\cite{moorhouse1982us} with forming filter $H_\alpha(s) = \sigma_\alpha\sqrt{2V/L_\alpha}/(s + V/L_\alpha)$, turbulence intensities $\sigma_u = \sigma_v = 0.5$\,m/s, $\sigma_w = 0.25$\,m/s, and altitude-dependent scaling $\sigma_\alpha(h) \propto (h/h_{\text{ref}})^{1/6}$. Spatial correlation between agents decays as $\rho(p_i,p_j) = \exp(-\norm{p_i - p_j}/\ell_c)$ with $\ell_c = 10$\,m, ensuring that closely spaced drones experience similar wind fields. Table~\ref{tab:params} collects all key parameters.
+Wind follows the Dryden turbulence spectrum (MIL-F-8785C) with forming filter $H_\alpha(s) = \sigma_\alpha\sqrt{2V/L_\alpha}/(s + V/L_\alpha)$ and altitude-dependent scaling $\sigma_\alpha(h) \propto (h/h_{\text{ref}})^{1/6}$. Inter-agent spatial correlation decays as $\rho(p_i,p_j) = \exp(-\norm{p_i - p_j}/\ell_c)$ with $\ell_c = 10$\,m, so closely spaced quadrotors experience similar wind.
 
 \begin{table}[t]
   \centering

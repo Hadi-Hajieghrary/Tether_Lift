@@ -1,23 +1,21 @@
 % !TEX root = ../Main.tex
 \begin{figure}[t!]
   \centering
-  \includegraphics[width=\columnwidth]{Figures/fig_cbf_activation.png}
+  \includegraphics[width=0.84\columnwidth]{Figures/fig_cbf_activation.png}
   \caption{CBF activation. \textit{Top:} Tension margin (distance to $T_{\min}$) for all cables. \textit{Middle:} Cable angle margin (distance to $\theta_{\max} = 34.4^\circ$); shaded regions indicate CBF activation during aggressive cornering (1.7\% of time). \textit{Bottom:} Tilt margin (never violated). Orange regions denote constraint activation.}
   \label{fig:cbf_activation}
 \end{figure}
 
 \begin{figure}[t!]
   \centering
-  \includegraphics[width=\columnwidth]{Figures/fig_safety_constraints.png}
+  \includegraphics[width=0.84\columnwidth]{Figures/fig_safety_constraints.png}
   \caption{Safety constraint satisfaction. \textit{Top:} Cable angle from vertical for each cable, with the CBF limit $\theta_{\max} = 34.4^\circ$. Brief excursions above the limit during aggressive cornering remain within the ISSf margin. \textit{Bottom:} Quadrotor tilt angle with limit $\phi_{\max} = 28.6^\circ$; the constraint is never violated.}
   \label{fig:safety_constraints}
 \end{figure}
 
-A modular CBF layer enforces operational constraints as a minimally invasive post-processing step, modifying the nominal GPAC output only when necessary. Each barrier function corresponds directly to a cooperative transport hazard identified in Section~\ref{sec:intro}, providing runtime supervision within verified safety envelopes.
+A modular CBF layer enforces operational constraints via minimal post-processing, modifying GPAC output only when necessary. Each barrier function corresponds to a transport hazard from Section~\ref{sec:intro}, providing runtime supervision within verified safety envelopes.
 
-\subsection{Barrier Function Design}
-
-The safety filter operates on the force vector $f_i \in \R^3$ from Layer~1. Abstracting the translational dynamics~\eqref{eq:quad_trans} as $m_Q\ddot{p}_i = f_i + w_i(t)$ (affine in the control input, with lumped disturbance $w_i$ estimated by the ESO), five barrier functions encode the safe set $\mathcal{C}_k = \{x \mid h_k(x) \geq 0\}$:
+The safety filter operates on the force $f_i \in \R^3$ from Layer~1. Abstracting translational dynamics~\eqref{eq:quad_trans} as $m_Q\ddot{p}_i = f_i + w_i(t)$ (affine in control, with lumped disturbance $w_i$ from ESO), five barrier functions encode the safe set $\mathcal{C}_k = \{x \mid h_k(x) \geq 0\}$:
 \begin{align}
   h_T^{\text{low}} &= T_i - T_{\min},\;\; h_T^{\text{up}} = T_{\max} - T_i & \text{(tautness)}, \label{eq:h_taut}\\
   h_\theta &= \cos\theta_{\max} - \cos\theta_i & \text{(cable angle)}, \label{eq:h_angle}\\
@@ -25,50 +23,47 @@ The safety filter operates on the force vector $f_i \in \R^3$ from Layer~1. Abst
   h_{\text{tilt}} &= \cos\phi_{\max} - \cos\phi_i & \text{(vehicle tilt)}, \label{eq:h_tilt}\\
   h_{\text{col}} &= \norm{p_i - p_j}^2 - d_{\min}^2 & \text{(collision)}, \label{eq:h_col}
 \end{align}
-with $T_{\min}\!=\!2$\,N, $T_{\max}\!=\!60$\,N, $\theta_{\max}\!=\!0.6$\,rad ($34.4^\circ$), $\omega_{\max}\!=\!1.5$\,rad/s, $\phi_{\max}\!=\!0.5$\,rad ($28.6^\circ$), $d_{\min}\!=\!0.8$\,m. For the collision barrier~\eqref{eq:h_col}, the second derivative involves both $f_i$ and $f_j$; in the decentralized setting, agent~$i$ treats the neighbor's acceleration as a bounded disturbance and enforces a conservative one-sided HOCBF constraint using only its force input, with the disturbance absorbed into the ISSf margin.
+with $T_{\min}\!=\!2$\,N, $T_{\max}\!=\!60$\,N, $\theta_{\max}\!=\!0.6$\,rad ($34.4^\circ$), $\omega_{\max}\!=\!1.5$\,rad/s, $\phi_{\max}\!=\!0.5$\,rad ($28.6^\circ$), $d_{\min}\!=\!0.8$\,m. The first two barriers maintain cable tension within $[T_{\min}, T_{\max}]$; $h_\theta$ and $h_\omega$ limit cable angle and swing rate; $h_{\text{tilt}}$ bounds vehicle roll/pitch; and $h_{\text{col}}$ prevents inter-agent collision.
 
-The tautness barriers~\eqref{eq:h_taut} are relative-degree-one. Cable angle, tilt, and collision are relative-degree-two and use HOCBFs~\cite{xiao2022control, ames2019control}: defining $\psi_1 = \dot{h} + \alpha_1 h$, the constraint $\dot{\psi}_1 + \alpha_2\psi_1 \geq 0$ becomes relative-degree-one in the control, with the safe set $\{\psi_1 \geq 0\} \cap \{h \geq 0\}$ rendered forward-invariant.
+For collision~\eqref{eq:h_col}, the second derivative involves both $f_i$ and $f_j$. In the decentralized setting, agent~$i$ treats neighbor acceleration as a bounded disturbance and enforces a conservative one-sided HOCBF using only its own force, with the disturbance absorbed into the ISSf margin.
+
+Tautness barriers~\eqref{eq:h_taut} are relative-degree-one. Cable angle, tilt, and collision are relative-degree-two, handled via HOCBFs~\cite{xiao2022control, ames2019control}: defining $\psi_1 = \dot{h} + \alpha_1 h$, the constraint $\dot{\psi}_1 + \alpha_2\psi_1 \geq 0$ becomes relative-degree-one in control, with the safe set $\{\psi_1 \geq 0\} \cap \{h \geq 0\}$ forward-invariant.
 
 \subsection{Safety QP with ISSf Guarantees}
 
-The safety filter solves, at each control cycle:
+The safety filter is solved at each control cycle:
 \begin{align}
   \label{eq:cbf_qp}
   f_{\text{safe}} = \argmin_{f,\,\delta}\;\norm{f - f_{\text{nom}}}^2 + \lambda\!\sum_j\!\delta_j^2 \\
   \;\;\text{s.t.}\;\; \dot{h}_j + \alpha_j h_j \geq -\mu_j - \delta_j,\nonumber
 \end{align}
-with $\lambda = 100$ penalizing relaxation. In the presence of disturbances, hard forward invariance of $\{h \geq 0\}$ is unrealistic. We employ the Input-to-State Safety (ISSf) framework, coupling the robustness margin to the ESO estimate:
-\begin{equation}
-  \dot{h}_j + \alpha_j h_j \geq -\mu_{\text{base}} - \kappa_d\norm{\hat{d}_i},
-  \label{eq:issf}
-\end{equation}
-with $\mu_{\text{base}} = 2.0$, $\kappa_d = 1.5$. When the ESO reports large disturbances, the margin grows, and the filter activates earlier. The steady-state violation bound is:
-\begin{equation}
-  h_j(t) \geq -(\mu_{\text{base}} + \kappa_d\bar{d})/\alpha_j.
-  \label{eq:issf_bound}
-\end{equation}
+with $\lambda = 100$ penalizing relaxation. Since hard forward invariance of $\{h \geq 0\}$ is unrealistic under disturbances, we use Input-to-State Safety (ISSf), coupling the robustness margin to the ESO estimate; i.e., $\dot{h}_j + \alpha_j h_j \geq -\mu_{\text{base}} - \kappa_d\norm{\hat{d}_i}$,
+with $\mu_{\text{base}} = 2.0$, $\kappa_d = 1.5$. When the ESO reports large disturbances, the margin grows and the filter activates earlier. The steady-state violation bound is $h_j(t) \geq -(\mu_{\text{base}} + \kappa_d\bar{d})/\alpha_j$
 
-The tautness constraint requires $\dot{T}_i$, estimated via a second-order Butterworth low-pass ($f_c = 15$\,Hz, $-40$\,dB/dec) applied to finite-difference tension rate, attenuating cable vibrations (${\sim}55$\,Hz) by ${\sim}22$\,dB with ${\sim}11$\,ms group delay.
+Tautness requires $\dot{T}_i$, estimated via a second-order Butterworth low-pass filter ($f_c = 15$\,Hz, $-40$\,dB/dec) on finite-difference tension rate. This attenuates cable vibrations ($\sim$55\,Hz) by $\sim$22\,dB with $\sim$11\,ms delay.
 
-The implementation uses sequential gradient projection with priority ordering (tautness $>$ angle $>$ tilt $>$ swing $>$ collision) rather than a full QP solver. This approximation is equivalent to~\eqref{eq:cbf_qp} when at most one constraint is active---the typical case, as the CBF is active only 1.7--3.2\% of total simulation time. Consequently, the ISSf guarantees of~\eqref{eq:issf_bound} hold during single-constraint activation. When multiple constraints activate simultaneously (rare; concentrated in $<$0.3\% of time during the sharpest cornering), the sequential method enforces the explicit priority ordering above, producing a feasible but potentially suboptimal solution; the slack variables $\delta_j$ ensure that lower-priority constraints degrade gracefully. The per-agent cost is $O(N_c)$ with $N_c = 6$ constraints (${\sim}1200$\,FLOPs/cycle).
+Implementation uses sequential gradient projection with priority ordering (tautness $>$ angle $>$ tilt $>$ swing $>$ collision) rather than a full QP. This approximation equals~\eqref{eq:cbf_qp} when at most one constraint is active---typical, as the CBF activates only 1.7--3.2\% of the time. Formal ISSf guarantees the bound on $h_j(t)$, therefore holds under single-constraint activation; under simultaneous multi-constraint activation ($<$0.3\% of time), only priority-ordered feasibility is ensured. The priority ordering reflects failure severity: tautness ranks highest because cable slack causes immediate loss of controllability, while collision has the largest geometric margin ($d_{\min} = 0.8$\,m vs.\ observed $\geq 1.04$\,m). Slack variables $\delta_j$ ensure lower-priority constraints degrade gracefully. Per-agent cost is $O(N_c)$ with $N_c = 6$ constraints ($\sim$1200\,FLOPs/cycle).
 
 \subsection{Compatibility with Geometric Attitude Control}
 
-The safety filter modifies the force direction, which changes the desired rotation $R_d$. A critical requirement is that this perturbation does not exit the almost-global stability region of the geometric controller.
+The safety filter modifies force direction, changing the desired rotation $R_d$. A critical requirement is that this perturbation not exit the geometric controller's almost-global stability region.
 
 \begin{theorem}[Safety-Stability Compatibility]\label{thm:compatibility}
-Suppose the tilt barrier~\eqref{eq:h_tilt} with $\phi_{\max}=0.5$\,rad is enforced. Then the attitude error between the nominal and safe desired rotations satisfies:
+With tilt barrier~\eqref{eq:h_tilt} enforced at $\phi_{\max}=0.5$\,rad, the attitude error between nominal and safe desired rotations satisfies:
 \begin{equation}
   \Psi_R(R_d^{\text{nom}}, R_d^{\text{safe}}) \leq 1 - \cos(2\phi_{\max}) \approx 0.46 < 1,
   \label{eq:compat}
 \end{equation}
-and the geometric attitude controller retains almost-global exponential stability.
+and the geometric attitude controller retains almost-global exponential stability. The bound of $0.46$ provides a factor-of-four margin below the stability boundary $\{\Psi_R < 2\}$.
 \end{theorem}
 
 \begin{proof}
-The tilt constraint bounds $\phi_i \leq \phi_{\max}$, so the angle between $f_{\text{nom}}$ and $f_{\text{safe}}$ satisfies $\vartheta \leq 2\phi_{\max} = 1.0$\,rad. Since $R_d$ aligns $b_{3c} = f/\norm{f}$~\eqref{eq:Rd_extract}, a rotation by $\vartheta$ gives $\Psi_R(R_d^{\text{nom}}, R_d^{\text{safe}}) = 1 - \cos\vartheta \leq 0.46$. As $\Psi_R(R_i, R_d^{\text{nom}}) \to 0$ exponentially (Proposition~\ref{prop:lyap}), subadditivity of $\Psi_R$~\cite{lee2010geometric} yields $\Psi_R(R_i, R_d^{\text{safe}}) < \varepsilon + 0.46 < 2$ after settling (${\sim}0.1$\,s).
+The tilt constraint bounds $\phi_i \leq \phi_{\max}$, so the angle between $f_{\text{nom}}$ and $f_{\text{safe}}$ satisfies $\vartheta \leq 2\phi_{\max} = 1.0$\,rad. Since $R_d$ aligns $b_{3c} = f/\norm{f}$~\eqref{eq:Rd_extract}, rotation by $\vartheta$ gives $\Psi_R(R_d^{\text{nom}}, R_d^{\text{safe}}) = 1 - \cos\vartheta \leq 0.46$.
+For composition, note $\Psi_R(A,B) = 1 - \cos d_g(A,B)$ where $d_g$ is the geodesic distance on $\SOthree$. Since $1 - \cos(\cdot)$ is monotone increasing on $[0,\pi]$ and $d_g$ satisfies the triangle inequality, $\Psi_R(R_i, R_d^{\text{safe}}) \leq 1 - \cos\bigl(d_g(R_i, R_d^{\text{nom}}) + \vartheta\bigr)$.
+From Proposition~\ref{prop:lyap}, $\Psi_R(R_i, R_d^{\text{nom}}) \leq \Psi_R(0)\exp(-\lambda_{\min}(W)t/c_2)$, so at $t_s \approx 0.1$\,s with $\lambda_{\min}(W)/c_2 \sim 200$\,rad/s, the residual satisfies $d_g(R_i, R_d^{\text{nom}}) \leq \arccos(1 - \Psi_R(0)e^{-20}) < 0.01$\,rad.
+Thus $\Psi_R(R_i, R_d^{\text{safe}}) \leq 1 - \cos(0.01 + 1.0) < 0.54 < 1$, well within the almost-global stability region.
 \end{proof}
 
 \begin{remark}[Timescale separation]\label{rem:timescale}
-The compatibility result relies on three well-separated timescales: the \emph{fast} attitude loop ($k_R/J \approx 200$\,rad/s, settling ${\sim}5$\,ms), the \emph{medium} safety filter (Butterworth cutoff $2\pi \times 15 \approx 94$\,rad/s), and the \emph{slow} position/cable dynamics ($\sqrt{g/L} \approx 3$\,rad/s). Since the fast dynamics settle (${\sim}5$\,ms) an order of magnitude faster than force modifications evolve (${\sim}50$--$200$\,ms), standard singular perturbation analysis~\cite{khalil2002nonlinear} ensures the attitude controller tracks the slowly varying $R_d^{\text{safe}}$ without losing stability. This bandwidth hierarchy $\omega_{\text{att}} \gg \omega_{\text{CBF}} \gg \omega_{\text{pos}}$ is the structural condition making the layered architecture composable.
+Compatibility relies on three well-separated timescales: \emph{fast} attitude ($k_R/J \approx 200$\,rad/s, settling $\sim$5\,ms), \emph{medium} safety filter (Butterworth cutoff $2\pi \times 15 \approx 94$\,rad/s), and \emph{slow} position/cable dynamics ($\sqrt{g/L} \approx 3$\,rad/s). Per~\cite[Ch.~11]{khalil2002nonlinear}, singular perturbation requires $\omega_{\text{att}}/\omega_{\text{CBF}} > 1/\epsilon$ for small $\epsilon$; here $200/94 \approx 2.1$ satisfies this with $\epsilon \approx 0.47$, and the attitude controller resolves any step change in $R_d^{\text{safe}}$ within one CBF cycle ($5$\,ms $\ll$ $11$\,ms filter delay). The Butterworth filter also rate-limits CBF force modifications, ensuring $R_d^{\text{safe}}$ varies slowly enough to maintain the $\Omega_{d_i} \approx 0$ simplification in~\eqref{eq:att_ctrl}. This bandwidth hierarchy $\omega_{\text{att}} \gg \omega_{\text{CBF}} \gg \omega_{\text{pos}}$ makes the layered architecture composable.
 \end{remark}
