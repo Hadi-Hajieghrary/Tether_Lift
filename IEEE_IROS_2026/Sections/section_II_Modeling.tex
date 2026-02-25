@@ -5,23 +5,14 @@ The world frame~$\mathcal{W}$ has $e_3$ upward. Rotations lie in $\SOthree$; the
   \label{eq:manifold}
 \end{equation}
 
-\subsection{Quadrotor and Payload Dynamics}
-
 $N$~identical quadrotors (mass $m_Q$, inertia $J$) obey
 \begin{align}
   m_Q \ddot{p}_i &= m_Q g\, e_3 + f_i R_i e_3 + F_i^{\text{cable}} + F_i^{\text{wind}}, \label{eq:quad_trans}\\
   J\dot{\Omega}_i &= -\Omega_i \times J\Omega_i + \tau_i + \tau_i^{\text{ext}}, \label{eq:quad_rot}
 \end{align}
-with kinematics $\dot{R}_i = R_i \hatmap{\Omega}_i$, where $f_i$ is scalar thrust, $\tau_i$ is control torque, $F_i^{\text{cable}}$ is cable tension, and $F_i^{\text{wind}}$ is aerodynamic disturbance. The payload (mass $m_L$, position $p_L$) satisfies
-\begin{equation}
-  m_L \ddot{p}_L = -m_L g\, e_3 + \textstyle\sum_{i=1}^{N} F_i^L + F^{\text{contact}} + F_L^{\text{wind}},
-  \label{eq:payload}
-\end{equation}
-where $F_i^L$ is the cable force from the $i$-th rope at the payload attachment point, and $F^{\text{contact}}$ denotes ground normal and Coulomb friction forces.
+with kinematics $\dot{R}_i = R_i \hatmap{\Omega}_i$, where $f_i$ is scalar thrust, $\tau_i$ is control torque, $F_i^{\text{cable}}$ is cable tension, and $F_i^{\text{wind}}$ is aerodynamic disturbance. The payload (mass $m_L$, position $p_L$) satisfies $m_L \ddot{p}_L = -m_L g\, e_3 + \textstyle\sum_{i=1}^{N} F_i^L + F^{\text{contact}} + F_L^{\text{wind}}$, where $F_i^L$ is the cable force from the $i$-th rope at the payload attachment point, and $F^{\text{contact}}$ denotes ground normal and Coulomb friction forces.
 
 The cable direction $q_i \in \Sph^2$ from payload to quadrotor evolves as $\dot{q}_i = \omega_{q_i} \times q_i$ with $\omega_{q_i} \in T_{q_i}\Sph^2$. Under constraint $p_i = p_L + R_L\rho_i^L + L_i q_i$ ($\rho_i^L$: attachment offset in payload frame), swing dynamics on $\Sph^2$ are governed by projected quadrotor acceleration and gravitational restoring torque (the singularity-free error functions parameterizing these dynamics are defined in Section~\ref{sec:control}).
-
-\subsection{Bead-Chain Cable Model}
 
 Rigid-link cable models neglect compliance, wave propagation, and slack-to-taut transitions that significantly affect transport behavior. To capture these effects, each cable is discretized as $n_b$ point-mass beads connected by $n_b+1$ tension-only spring-damper segments.
 
@@ -31,8 +22,6 @@ Let $b_0$ be the quadrotor attachment, $b_1,\ldots,b_{n_b}$ the bead positions, 
   \label{eq:stiffness}
 \end{equation}
 with $F_{\text{load}} = m_L g/N$ and $k_{\text{ref}} = 300$\,N/m, $c_{\text{ref}} = 15$\,N$\cdot$s/m. Each bead (mass $m_b = m_{\text{rope}}/n_b$, $m_{\text{rope}} = 0.2$\,kg) obeys $m_b\ddot{b}_j = F_j - F_{j+1} - m_bg\,e_3$. The model supports wave propagation ($\sim\sqrt{k_s L_0/m_b}$), distributed inertia, and impulsive loading during slack-to-taut transitions.
-
-\subsection{Sensor Models and Wind Disturbance}
 
 Each quadrotor carries an onboard sensor suite (parameters in Table~\ref{tab:params}). The \emph{IMU} provides body-frame specific force $\tilde{a}_i = R_i^\top(\ddot{p}_i + ge_3) + b_{a_i} + n_{a_i}$ and angular velocity $\tilde{\omega}_i = \Omega_i + b_{g_i} + n_{g_i}$ with Gauss--Markov biases ($\dot{b} = -b/\tau + \eta$, $\tau = 3600$\,s). The \emph{GPS} provides position with dropout probability. The \emph{barometer} has three-component noise (white, correlated, slow drift) with 0.1\,m quantization. Cable tension $T_i$ is measured via load cell and direction $q_i$ via 2-axis encoder.
 

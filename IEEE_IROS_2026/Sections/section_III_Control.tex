@@ -30,9 +30,7 @@ GPAC is a four-layer hierarchical controller assigning each physical degree of f
 \label{fig:architecture}
 \end{figure}
 
-\subsection{Geometric Error Functions}
-
-The singularity-free error functions are:
+The singularity-free error functions is defined as:
 \begin{align}
   e_{R_i} &= \tfrac{1}{2}(R_{d_i}^\top R_i - R_i^\top R_{d_i})^\vee, \label{eq:eR}\\
   \Psi_{q_i} &= 1 - q_{d_i} \cdot q_i \in [0,2], \label{eq:psi_q}\\
@@ -81,7 +79,7 @@ Define the Lyapunov function
   V_R = \tfrac{1}{2}k_R\,\Psi_{R_i} + \tfrac{1}{2}e_{\Omega_i}^\top J\,e_{\Omega_i} + c\,e_{R_i}^\top J\,e_{\Omega_i},
   \label{eq:VR}
 \end{equation}
-where $\Psi_{R_i} = \frac{1}{2}\tr(I - R_{d_i}^\top R_i)$ is the attitude configuration error and $c>0$ is sufficiently small. Under~\eqref{eq:att_ctrl} with $\Psi_{R_i}(0)<2$:
+where $\Psi_{R_i} = \frac{1}{2}\tr(I - R_{d_i}^\top R_i)$ is the attitude configuration error and $c>0$ is sufficiently small. With $\Psi_{R_i}(0)<2$:
 \begin{equation}
   \dot{V}_R \leq -\lambda_{\min}(W)\bigl(\norm{e_{R_i}}^2 + \norm{e_{\Omega_i}}^2\bigr),
   \label{eq:VR_dot}
@@ -99,7 +97,5 @@ for a positive-definite $W = W(k_R, k_\Omega, J)$, yielding exponential converge
 with $\tilde{x}_k = x_k - \hat{z}_{1k}$ and poles at $-\omega_0 = -50$\,rad/s (settling $\sim$0.1\,s). The disturbance estimate $\hat{d}_i = [\hat{z}_{3x}, \hat{z}_{3y}, \hat{z}_{3z}]^\top$ is saturated to $|\hat{d}_{i,k}| \leq 20$\,m/s$^2$ and fed forward via $F_{\text{eso},i}$. Under bounded $\dot{d}$, estimation error scales as $O(\sup|\dot{d}|/\omega_0)$~\cite{guo2013active}.
 
 \textit{Layer~3} adaptively estimates the payload mass share $\hat{\theta}_i \approx m_L/N$ via concurrent learning~\cite{chowdhary2010concurrent}, providing gravity compensation $\hat{\theta}_i(ge_3 + \ddot{p}_d^L)$ to Layer~1.
-
-\subsection{Cascade Stability and Fault Containment}
 
 The cascade exploits timescale separation: attitude ($k_R/J \approx 200$\,rad/s) $\gg$ ESO ($\omega_0 = 50$\,rad/s) $\gg$ position ($\omega_p = \sqrt{K_p/m_Q} \approx 30$\,rad/s). Singular perturbation arguments guarantee composite stability when this bandwidth ratio exceeds a computable threshold~\cite{khalil2002nonlinear}. The hierarchy also provides fault containment: mass estimation errors (Layer~3) affect only feedforward in Layer~1 without corrupting attitude tracking; ESO transients are filtered before reaching attitude; CBF interventions are bounded by the tilt constraint (Section~\ref{sec:safety}). This modularity supports independent layer verification~\cite{koopman2017autonomous}.

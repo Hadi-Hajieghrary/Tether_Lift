@@ -6,7 +6,7 @@ The 50\,s benchmark exercises all hazards: pre-lift hover with slack-to-taut tra
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.84\columnwidth]{Figures/fig_trajectory_3d.png}
-  \caption{3D trajectory. The max velocity of the load is 1\,m/s. Gray dashed lines: cable attachments. Asymmetric formation accommodates 19\% uncertainty in cable length.}
+  \caption{3D trajectory of the load and the quadcopters. The max velocity of the load is 1\,m/s.}
   \label{fig:trajectory_3d}
 \end{figure}
 
@@ -39,6 +39,7 @@ Table~\ref{tab:tracking} summarizes payload tracking errors for the baseline see
   \includegraphics[width=0.84\columnwidth]{Figures/fig_tracking_error.png}
   \caption{Payload tracking error. \textit{Top:} 3D error (RMSE 22.9\,cm); peaks (80.3\,cm) during aggressive cornering. \textit{Bottom:} Components. The right loop (7--20\,s) shows larger errors before CL converges.}
   \label{fig:tracking_error}
+  \vspace{-5pt}
 \end{figure}
 
 \subsection{Estimation and Adaptive Convergence}
@@ -52,9 +53,10 @@ Concurrent learning converges within $\sim$8\,s, accumulating $\sim$30 informati
   \includegraphics[width=0.84\columnwidth]{Figures/fig_estimation_error.png}
   \caption{Estimation performance. \textit{Top:} ESKF error (7.1\,cm RMSE, max 22.3\,cm during cornering). \textit{Middle:} Decentralized load estimate (49.5\,cm RMSE), limited by single-cable observability. \textit{Bottom:} Per-quadrotor mass estimates converging to $m_L/N$.}
   \label{fig:estimation_error}
+  \vspace{-5pt}
 \end{figure}
 
-Table~\ref{tab:failure_modes} consolidates the hazard-to-mitigation mapping with constraint enforcement data. Cable angle CBF activates most frequently; the observed excursion ($48.1^\circ$ vs.\ $34.4^\circ$ limit) and swing rate ($1.6$ vs.\ $1.5$\,rad/s) are consistent with the ISSf bound, which predicts margin violations of this magnitude under peak disturbance. Tilt and collision constraints are never violated ($\geq 1.04$\,m clearance, 30\% above $d_{\min}$). The CBF activates infrequently and increases tracking RMSE by only 2\%.
+Table~\ref{tab:failure_modes} presents the hazard-to-mitigation mapping with constraint enforcement data. Cable angle CBF activates most frequently; the observed excursion ($48.1^\circ$ vs.\ $34.4^\circ$ limit) and swing rate ($1.6$ vs.\ $1.5$\,rad/s) are consistent with the ISSf bound, which predicts margin violations of this magnitude under peak disturbance. Tilt and collision constraints are never violated ($\geq 1.04$\,m clearance, 30\% above $d_{\min}$). The CBF activates infrequently and increases tracking RMSE by only 2\%.
 
 Table~\ref{tab:ablation} isolates each component's contribution. The ESO provides the largest benefit (+43\% degradation when removed), followed by concurrent learning (+33\%). This ranking indicates that wind disturbance rejection is the dominant contributor to tracking accuracy in this scenario, consistent with the Dryden turbulence intensities used. The CBF imposes minimal tracking cost while substantially reducing peak cable angles. The centralized estimation baseline reduces RMSE by 22\% but requires inter-agent communication.
 
@@ -74,8 +76,6 @@ Table~\ref{tab:ablation} isolates each component's contribution. The ESO provide
     \bottomrule
   \end{tabular}
 \end{table}
-
-Per-agent computation totals $\sim$0.7\,MFLOP/s, dominated by the ESKF ($\sim$2000\,FLOPs/cycle at 200\,Hz) with the CBF adding $\sim$1200\,FLOPs/cycle. This fits comfortably on ARM Cortex-M7 class processors (400\,MHz, single-precision FPU) with margin for communication and sensing.
 
 \begin{table}[t]
   \centering
