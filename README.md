@@ -142,9 +142,9 @@ The controller implements a **cascaded PD structure** with tension feedback:
 
 | Axis | Control Law | Gains | Output |
 |------|-------------|-------|--------|
-| **X** | `ax = Kp*(x_des - x) + Kd*(vx_des - vx)` | Kp=10, Kd=6 | Desired pitch angle |
-| **Y** | `ay = Kp*(y_des - y) + Kd*(vy_des - vy)` | Kp=10, Kd=6 | Desired roll angle |
-| **Z** | `az = Kp*(z_des - z) + Kd*(vz_des - vz)` | Kp=15, Kd=8 | Base thrust |
+| **X** | `ax = Kp*(x_des - x) + Kd*(vx_des - vx)` | Kp=15, Kd=7 | Desired pitch angle |
+| **Y** | `ay = Kp*(y_des - y) + Kd*(vy_des - vy)` | Kp=15, Kd=7 | Desired roll angle |
+| **Z** | `az = Kp*(z_des - z) + Kd*(vz_des - vz)` | Kp=25, Kd=12 | Base thrust |
 
 **X/Y to tilt conversion** (small angle approximation):
 ```cpp
@@ -158,9 +158,9 @@ roll_des  = clamp(-ay / g, -max_tilt, max_tilt); // +roll → -y motion
 
 | Axis | Control Law | Gains |
 |------|-------------|-------|
-| **Roll** | `τx = Kp*(roll_des - roll) - Kd*ωx` | Kp=8, Kd=1.5 |
-| **Pitch** | `τy = Kp*(pitch_des - pitch) - Kd*ωy` | Kp=8, Kd=1.5 |
-| **Yaw** | `τz = Kp*(0 - yaw) - Kd*ωz` | Kp=8, Kd=1.5 |
+| **Roll** | `τx = Kp*(roll_des - roll) - Kd*ωx` | Kp=15, Kd=2.5 |
+| **Pitch** | `τy = Kp*(pitch_des - pitch) - Kd*ωy` | Kp=15, Kd=2.5 |
+| **Yaw** | `τz = Kp*(0 - yaw) - Kd*ωz` | Kp=15, Kd=2.5 |
 
 Angular velocities are computed in **body frame**: `ω_B = R^T * ω_W`
 
@@ -239,12 +239,12 @@ RopeForceSystem ──► ZeroOrderHold(dt) ──► Controller
 
 | Parameter | Value | Description |
 |-----------|-------|-------------|
-| `pickup_detection_threshold` | 1.0 N | Tension level to trigger pickup mode |
-| `pickup_ramp_duration` | 2.0 s | Time to ramp to full target tension |
+| `pickup_detection_threshold` | 0.3 N | Tension level to trigger pickup mode |
+| `pickup_ramp_duration` | 1.0 s | Time to ramp to full target tension |
 | `pickup_target_tension` | `payload_weight / N` | Final tension target per rope |
-| `tension_feedback_kp` | 0.5 | Proportional gain for tension error |
-| `tension_altitude_gain` | 0.003 | Gain for altitude adjustment |
-| `tension_altitude_max` | 0.5 m | Maximum altitude adjustment |
+| `tension_feedback_kp` | 1.5 | Proportional gain for tension error |
+| `tension_altitude_gain` | 0.008 | Gain for altitude adjustment |
+| `tension_altitude_max` | 1.0 m | Maximum altitude adjustment |
 
 ---
 
@@ -262,7 +262,7 @@ Each quadcopter is modeled as a **free-floating rigid body** with:
 
 - Mass: 3.0 kg
 - Shape: Sphere (radius 0.15 m)
-- Ground contact: Coulomb friction (μ_s=0.9, μ_d=0.7)
+- Ground contact: Coulomb friction (μ_s=0.5, μ_d=0.3)
 - Initial state: Resting on ground at origin
 
 ### Ropes (Bead-Chain Model)
@@ -303,7 +303,7 @@ if (stretch <= 0) {
 | Parameter | Value | Description |
 |-----------|-------|-------------|
 | Bead mass | 0.025 kg | Per bead |
-| Bead radius | 0.02 m | For collision |
+| Bead radius | 0.012 m | For collision |
 | Segment stiffness | ~200 N/m | Computed from desired stretch |
 | Segment damping | ~15 N·s/m | Scaled with √stiffness |
 | Max stretch | 15% | Design target |
@@ -342,13 +342,24 @@ struct TrajectoryWaypoint {
 };
 ```
 
-**Default Trajectory**:
+**Default Trajectory** (figure-8 with altitude variation):
 | Phase | Position | Arrival | Hold | Description |
 |-------|----------|---------|------|-------------|
-| 1 | (0, 0, 1.2) | 0s | 1s | Initial hover |
-| 2 | (0, 0, 3.0) | 4s | 2s | Ascend (lift payload) |
-| 3 | (2, 1, 3.0) | 8s | 2s | Translate horizontally |
-| 4 | (2, 1, 2.0) | 12s | 3s | Descend to final position |
+| 0 | (0, 0, 1.2) | 0s | 2s | Initial hover |
+| 1 | (0, 0, 3.0) | 4s | 1.5s | Ascend (lift payload) |
+| 2 | (1.5, 0.5, 3.2) | 7s | 0.5s | Right loop entry |
+| 3 | (2.5, 1.5, 3.5) | 10s | 0.5s | Top-right |
+| 4 | (3.0, 0.0, 3.3) | 13s | 0.5s | Far-right |
+| 5 | (2.5, -1.5, 3.0) | 16s | 0.5s | Bottom-right |
+| 6 | (1.5, -0.5, 2.8) | 19s | 0.5s | Return toward center |
+| 7 | (0, 0, 3.0) | 21s | 0.5s | Center crossing |
+| 8 | (-1.5, 0.5, 3.2) | 24s | 0.5s | Left loop entry |
+| 9 | (-2.5, 1.5, 3.5) | 27s | 0.5s | Top-left |
+| 10 | (-3.0, 0.0, 3.3) | 30s | 0.5s | Far-left |
+| 11 | (-2.5, -1.5, 3.0) | 33s | 0.5s | Bottom-left |
+| 12 | (-1.5, -0.5, 2.8) | 36s | 0.5s | Return toward center |
+| 13 | (0, 0, 3.0) | 39s | 1s | Return to origin |
+| 14 | (0, 0, 2.0) | 43s | 2s | Controlled descent |
 
 ### Formation Offsets
 
@@ -384,17 +395,6 @@ A 3D line graph in the corner shows tension history:
 - Vertical bars showing current tension magnitude
 - Auto-scaling based on maximum observed tension
 
-### Simulation Recording
-
-A full Meshcat simulation recording is available for offline playback:
-
-> **[`Research/outputs/sim_recording.gif`](Research/outputs/sim_recording.gif)** — Self-contained HTML capture of a complete 15-second cooperative lift simulation (3 quadcopters, bead-chain ropes, 3 kg payload). Open in any browser to scrub through the trajectory: hover → ascend → translate → descend. Includes drone meshes, rope polylines, payload, ground plane, and reference trajectory overlay.
-
-To view, download the file and open it locally in a browser, or use GitHub's raw file link:
-```
-https://github.com/Hadi-Hajieghrary/Tether_Lift/blob/main/Research/outputs/sim_recording.gif
-```
-
 ---
 
 ## Data Logging
@@ -403,18 +403,21 @@ All simulation data is automatically logged to timestamped CSV files:
 
 ```
 outputs/logs/YYYYMMDD_HHMMSS/
-├── config.txt           # Simulation parameters
-├── trajectories.csv     # Ground truth positions/velocities
-├── tensions.csv         # Rope tensions
-├── control_efforts.csv  # Controller torques/forces
-├── gps_measurements.csv # Noisy GPS readings
-├── estimator_outputs.csv # State estimates
-└── reference_trajectory.csv # Desired trajectory
+├── config.txt                 # Simulation parameters
+├── trajectories.csv           # Ground truth positions/velocities
+├── tensions.csv               # Rope tensions
+├── control_efforts.csv        # Controller torques/forces
+├── gps_measurements.csv       # Noisy GPS readings
+├── estimator_outputs.csv      # State estimates
+├── imu_measurements.csv       # IMU sensor data
+├── barometer_measurements.csv # Altitude sensor data
+├── attitude_data.csv          # Orientation and errors
+└── wind_disturbance.csv       # Wind velocity vectors
 ```
 
 Each run creates a new folder, enabling easy comparison between experiments.
 
-See [cpp/README.md](cpp/README.md) for detailed file format documentation.
+See [Research/cpp/README.md](Research/cpp/README.md) for detailed file format documentation.
 
 ---
 
@@ -422,45 +425,52 @@ See [cpp/README.md](cpp/README.md) for detailed file format documentation.
 
 ```
 Tether_Lift/
-├── README.md                   # This file
-├── GPAC_Implementation_Plan.md # GPAC architecture design document
-├── outputs/
-│   └── logs/                   # Timestamped simulation data
-├── cpp/                        # C++ implementation
-│   ├── CMakeLists.txt
-│   ├── README.md               # Build instructions & detailed docs
-│   ├── include/
-│   │   │ # Core Simulation
-│   │   ├── quadcopter_controller.h
-│   │   ├── rope_force_system.h
-│   │   ├── rope_utils.h
-│   │   ├── rope_visualizer.h
-│   │   ├── tension_plotter.h
-│   │   │
-│   │   │ # GPAC Components
-│   │   ├── gpac_math.h                    # SO(3)/S² operations
-│   │   ├── extended_state_observer.h      # Layer 4: ESO
-│   │   ├── gpac_quadcopter_controller.h   # Layer 2: Geometric attitude
-│   │   ├── gpac_load_tracking_controller.h # Layer 1: Position + anti-swing
-│   │   ├── concurrent_learning_estimator.h # Layer 3: Adaptive estimation
-│   │   ├── gpac_cbf_safety_filter.h       # CBF safety filter
-│   │   │
-│   │   │ # State Estimation
-│   │   ├── imu_sensor.h
-│   │   ├── barometer_sensor.h
-│   │   ├── gps_sensor.h
-│   │   ├── eskf_estimator.h
-│   │   │
-│   │   │ # Visualization & Logging
-│   │   ├── trajectory_visualizer.h
-│   │   └── simulation_data_logger.h
-│   └── src/
-│       ├── main.cc
-│       └── ... (implementations)
-├── scripts/                    # Python prototype
-│   └── quad_rope_lift.py
-├── drake/                      # Drake source (submodule)
-└── References/                 # Design documents
+├── README.md                       # This file
+├── LICENSE
+├── DevContainers/                  # Dev environment (submodule)
+│   ├── .devcontainer/              # Dockerfile, devcontainer.json
+│   └── scripts/                    # Installation test scripts
+├── Research/                       # Core research code
+│   ├── README.md
+│   ├── cpp/                        # C++ simulation
+│   │   ├── CMakeLists.txt
+│   │   ├── README.md               # Build instructions & detailed docs
+│   │   ├── include/                # Public headers (25 files)
+│   │   │   ├── quadcopter_controller.h
+│   │   │   ├── rope_force_system.h
+│   │   │   ├── gpac_math.h                    # SO(3)/S² operations
+│   │   │   ├── gpac_quadcopter_controller.h   # Layer 2: Geometric attitude
+│   │   │   ├── gpac_load_tracking_controller.h # Layer 1: Position + anti-swing
+│   │   │   ├── concurrent_learning_estimator.h # Layer 3: Adaptive estimation
+│   │   │   ├── extended_state_observer.h      # Layer 4: ESO
+│   │   │   ├── gpac_cbf_safety_filter.h       # CBF safety filter
+│   │   │   ├── eskf_estimator.h               # 15-state ESKF
+│   │   │   ├── imu_sensor.h / barometer_sensor.h / gps_sensor.h
+│   │   │   └── ... (wind_disturbance.h, cbf_safety_filter.h, etc.)
+│   │   ├── src/                    # Source files + private headers
+│   │   │   ├── main.cc
+│   │   │   └── ... (33 .cc files, 9 private .h files)
+│   │   └── gpac/                   # GPAC test harness
+│   │       ├── src/main_gpac.cc
+│   │       └── tests/
+│   ├── scripts/                    # Python utilities
+│   │   ├── quad_rope_lift.py       # Single-quad prototype
+│   │   ├── generate_figures.py     # Paper figure generation
+│   │   ├── generate_video.py       # Supplementary video generation
+│   │   └── run_monte_carlo.sh      # Monte Carlo batch runner
+│   └── outputs/
+│       └── logs/                   # Timestamped simulation data
+├── outputs/                        # Generated artifacts
+│   ├── logs/                       # Timestamped simulation data (new runs)
+│   ├── monte_carlo/                # Monte Carlo study results
+│   ├── figures_n3/ / figures_n5/   # Generated paper figures
+│   └── supplementary_video.mp4
+├── IEEE_IROS_2026/                 # IROS 2026 paper (LaTeX)
+│   ├── Main.tex
+│   ├── Sections/                   # Paper sections
+│   ├── Figures/                    # Paper figures
+│   └── References/                 # Bibliography
+└── drake/                          # Drake source (submodule)
 ```
 
 ---
@@ -508,7 +518,7 @@ Dryden turbulence model with:
 
 The simulation logs comprehensive data to timestamped CSV files:
 
-**Output Location:** `/workspaces/Tether_Lift/outputs/logs/YYYYMMDD_HHMMSS/`
+**Output Location:** `outputs/logs/YYYYMMDD_HHMMSS/`
 
 ### Log Files Generated
 
@@ -540,13 +550,17 @@ time,load_x,load_y,load_z,load_vx,load_vy,load_vz,load_qw,load_qx,load_qy,load_q
 
 ```bash
 # Build
-cd cpp
+cd Research/cpp
 mkdir -p build && cd build
 cmake .. -G Ninja -DCMAKE_PREFIX_PATH=/opt/drake
 ninja
 
 # Run
 ./quad_rope_lift
+
+# Run with options
+./quad_rope_lift --seed 42 --duration 50 --num-quads 3
+./quad_rope_lift --headless  # No visualization (faster)
 
 # Open visualization
 # Navigate to http://localhost:7000 in your browser
@@ -556,16 +570,16 @@ ninja
 
 ## Configuration
 
-Key parameters in `cpp/src/main.cc`:
+Key parameters in `Research/cpp/src/main.cc` (overridable via CLI):
 
 ```cpp
 // Simulation
 const double simulation_time_step = 2e-4;  // [s]
-const double simulation_duration = 15.0;   // [s]
+double simulation_duration = 50.0;          // [s] (--duration)
 
 // Multi-quadcopter
-const int num_quadcopters = 3;
-const double formation_radius = 0.5;  // [m]
+int num_quadcopters = 3;                    // (--num-quads)
+const double formation_radius = 0.6;        // [m]
 
 // Physical properties
 const double quadcopter_mass = 1.5;   // [kg]
@@ -575,7 +589,16 @@ const int num_rope_beads = 8;
 // Rope length distributions (per quadcopter)
 std::vector<double> rope_length_means = {1.0, 1.1, 0.95};
 std::vector<double> rope_length_stddevs = {0.05, 0.08, 0.06};
-const unsigned int random_seed = 42;  // For reproducibility
+unsigned int random_seed = 42;  // For reproducibility (--seed)
+```
+
+**CLI Arguments:**
+```
+--seed N           Random seed for rope length sampling (default: 42)
+--headless         Disable Meshcat visualization (faster)
+--duration T       Simulation duration in seconds (default: 50.0)
+--num-quads N      Number of quadcopters (default: 3)
+--output-dir DIR   Base output directory (default: outputs/)
 ```
 
 ---

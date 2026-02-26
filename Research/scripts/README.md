@@ -132,7 +132,7 @@ This provides a more realistic visualization while keeping the simulation dynami
 
 From the repository root:
 
-- `/home/vscode/.venv/bin/python scripts/quad_rope_lift.py`
+- `/home/vscode/.venv/bin/python Research/scripts/quad_rope_lift.py`
 
 The terminal will print a Meshcat URL (commonly `http://localhost:7000`). Open it in your browser to view the simulation.
 

@@ -23,20 +23,20 @@ realizations, and wind turbulence sequences.
 
 ---
 
-## Aggregate Results (5 seeds, post-pickup t > 6 s)
+## Aggregate Results (15 seeds, post-pickup t > 6 s)
 
 ### Load Tracking Performance
 
 | Metric | Mean | Std | Min | Max | Unit |
 |---|---|---|---|---|---|
-| **3D RMSE** | **23.2** | **1.1** | **21.4** | **24.5** | **cm** |
-| 3D Max Error | 80.3 | 2.9 | 76.6 | 84.6 | cm |
+| **3D RMSE** | **23.7** | **1.5** | **21.4** | **26.8** | **cm** |
+| 3D Max Error | 80.4 | 2.9 | 76.8 | 86.2 | cm |
 | XY (Horizontal) RMSE | 22.8 | 1.2 | 21.0 | 24.0 | cm |
 | Z (Vertical) RMSE | 4.5 | 0.2 | 4.2 | 4.7 | cm |
 
-The 3D tracking RMSE of 23.2 +/- 1.1 cm is consistent with the paper's
-reported value of 22.9 cm (seed 42). The low standard deviation (1.1 cm,
-~5% relative) confirms that performance is robust to cable length variation.
+The 3D tracking RMSE of 23.7 +/- 1.5 cm across 15 seeds confirms robust
+performance. The low standard deviation (1.5 cm, ~6% relative) shows that
+the GPAC architecture is insensitive to cable length variation.
 
 ### Cable Tension Statistics
 
@@ -93,18 +93,28 @@ dynamics.
 
 ## Per-Seed Summary
 
-| Seed | L0 (m) | L1 (m) | L2 (m) | 3D RMSE (cm) | Max Err (cm) | Load Est (cm) | Max Tilt (deg) | Max Cable (deg) |
-|---|---|---|---|---|---|---|---|---|
-| 1 | 0.994 | 1.155 | 0.952 | 24.5 | 79.2 | 48.6 | 24.6 | 44.9 |
-| 2 | 1.018 | 0.941 | 1.009 | 21.4 | 81.3 | 45.3 | 25.6 | 43.2 |
-| 3 | 0.919 | 1.078 | 0.966 | 22.7 | 76.6 | 48.6 | 25.1 | 49.1 |
-| 4 | 1.063 | 1.130 | 0.932 | 24.3 | 84.6 | 46.8 | 24.6 | 44.6 |
-| 5 | — | — | — | 23.0 | 79.6 | — | — | — |
+| Seed | L0 (m) | L1 (m) | L2 (m) | 3D RMSE (cm) | Max Err (cm) |
+|---|---|---|---|---|---|
+| 1 | 0.994 | 1.155 | 0.952 | 24.5 | 79.1 |
+| 2 | 1.018 | 0.941 | 1.009 | 21.4 | 81.2 |
+| 3 | 0.919 | 1.078 | 0.966 | 22.7 | 76.8 |
+| 4 | 1.063 | 1.130 | 0.932 | 24.3 | 84.5 |
+| 5 | 0.936 | 1.083 | 1.006 | 23.0 | 79.7 |
+| 6 | 1.034 | 1.061 | 0.895 | 22.8 | 80.3 |
+| 7 | 1.082 | 1.271 | 0.998 | 26.8 | 84.9 |
+| 8 | 1.007 | 1.066 | 0.877 | 22.8 | 77.7 |
+| 9 | 0.988 | 1.239 | 1.014 | 26.2 | 86.2 |
+| 10 | 1.040 | 1.144 | 0.884 | 24.9 | 81.5 |
+| 11 | 0.971 | 1.031 | 1.009 | 22.0 | 77.7 |
+| 12 | 1.007 | 1.020 | 0.909 | 21.8 | 78.3 |
+| 13 | 1.015 | 1.136 | 1.009 | 23.9 | 81.9 |
+| 14 | 0.987 | 1.101 | 0.936 | 23.2 | 77.9 |
+| 15 | 0.957 | 1.154 | 0.957 | 24.5 | 79.0 |
 
 Seed 2 achieves the best tracking (21.4 cm) with near-equal cable lengths
-(0.94–1.02 m range, 8% spread). Seed 4 has the worst tracking (24.3 cm)
-with the largest cable asymmetry (0.93–1.13 m, 21% spread), confirming
-that cable asymmetry is the primary driver of tracking error variation.
+(0.94–1.02 m range, 8% spread). Seed 7 has the worst tracking (26.8 cm)
+with cable 1 sampled at 1.271 m (largest asymmetry), confirming that cable
+asymmetry is the primary driver of tracking error variation.
 
 ---
 
@@ -114,19 +124,19 @@ The Gaussian cable length distributions produce the following ranges:
 
 | Cable | Nominal Mean (m) | Nominal Std (m) | Sampled Range (m) |
 |---|---|---|---|
-| 0 | 1.00 | 0.05 | 0.919 -- 1.063 |
-| 1 | 1.10 | 0.08 | 0.941 -- 1.155 |
-| 2 | 0.95 | 0.06 | 0.932 -- 1.009 |
+| 0 | 1.00 | 0.05 | 0.919 -- 1.082 |
+| 1 | 1.10 | 0.08 | 0.941 -- 1.271 |
+| 2 | 0.95 | 0.06 | 0.877 -- 1.014 |
 
 Maximum cable asymmetry (max/min ratio across all cables within a single seed)
-ranges from 1.08 (seed 2) to 1.21 (seed 4).
+ranges from 1.08 (seed 2) to 1.27 (seed 7).
 
 ---
 
 ## Key Findings
 
-1. **Robust tracking performance.** The 3D RMSE is 23.2 +/- 1.1 cm across
-   seeds, with a coefficient of variation of only 4.7%. This confirms that
+1. **Robust tracking performance.** The 3D RMSE is 23.7 +/- 1.5 cm across
+   15 seeds, with a coefficient of variation of ~6%. This confirms that
    the GPAC architecture is insensitive to cable length uncertainty within
    the tested distribution.
 
@@ -153,8 +163,8 @@ ranges from 1.08 (seed 2) to 1.21 (seed 4).
 cd Research/cpp/build
 cmake .. -DCMAKE_PREFIX_PATH=/opt/drake && make -j$(nproc)
 
-# Run Monte Carlo (20 seeds)
-bash Research/scripts/run_monte_carlo.sh 20 1
+# Run Monte Carlo (15 seeds)
+bash Research/scripts/run_monte_carlo.sh 15 1
 
 # Aggregate results
 python Research/scripts/generate_figures.py \
@@ -190,6 +200,6 @@ outputs/monte_carlo/
     barometer_measurements.csv
     gps_measurements.csv
     wind_disturbance.csv
-  seed_002/                    # Seed 2 simulation logs
-  ...
+  seed_002/ ... seed_015/      # Seed 2-15 simulation logs
+  5quad_seed042/               # 5-quadcopter validation run
 ```

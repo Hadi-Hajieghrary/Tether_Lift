@@ -177,8 +177,8 @@ cpp/
 │   ├── cbf_safety_filter.h         # Control Barrier Function safety
 │   ├── wind_disturbance.h          # Dryden turbulence wind model
 │   │
-│   │ # Visualization (No .h in include - defined in src/)
-│   └── (visualization headers in src/)
+│   │ # Visualization & Logging (headers in include/)
+│   └── wind_disturbance.h          # Dryden turbulence wind model
 │
 └── src/
     ├── main.cc                     # Multi-quad simulation setup and main loop
@@ -227,9 +227,12 @@ cpp/
     ├── load_tracking_controller.h/cc   # Full load tracking control
     ├── decentralized_drone_controller.h/cc # N-independent controller
     │
+    │ # Wind
+    ├── wind_force_applicator.h/cc      # Wind force application to bodies
+    │
     │ # Visualization & Logging
     ├── trajectory_visualizer.h/cc      # Reference + actual trajectory viz
-    └── simulation_data_logger.h/cc     # Comprehensive CSV logging (12 files)
+    └── simulation_data_logger.h/cc     # Comprehensive CSV logging (10 files)
 ```
 
 ## Physical Model
@@ -253,13 +256,13 @@ Key parameters in `src/main.cc`:
 ```cpp
 // Simulation
 const double simulation_time_step = 2e-4;  // [s]
-const double simulation_duration = 15.0;   // [s]
+double simulation_duration = 50.0;          // [s] (--duration)
 
 // Number of quadcopters
-const int num_quadcopters = 3;
+int num_quadcopters = 3;                    // (--num-quads)
 
 // Formation geometry
-const double formation_radius = 0.5;  // [m] - horizontal distance from payload
+const double formation_radius = 0.6;  // [m] - horizontal distance from payload
 
 // Quadcopter (same for all)
 const double quadcopter_mass = 1.5;  // [kg]
@@ -300,17 +303,28 @@ The shared trajectory is defined as a sequence of waypoints:
 ```cpp
 std::vector<TrajectoryWaypoint> waypoints;
 
-// Phase 1: Hover at initial position
-waypoints.push_back({Eigen::Vector3d(0, 0, 1.2), 0.0, 1.0});
+// Hover and ascend
+waypoints.push_back({Eigen::Vector3d(0, 0, 1.2), 0.0, 2.0});     // Initial hover
+waypoints.push_back({Eigen::Vector3d(0, 0, 3.0), 4.0, 1.5});     // Ascend
 
-// Phase 2: Ascend to lift payload
-waypoints.push_back({Eigen::Vector3d(0, 0, 3.0), 4.0, 2.0});
+// Right loop (figure-8)
+waypoints.push_back({Eigen::Vector3d(1.5, 0.5, 3.2), 7.0, 0.5});
+waypoints.push_back({Eigen::Vector3d(2.5, 1.5, 3.5), 10.0, 0.5});
+waypoints.push_back({Eigen::Vector3d(3.0, 0.0, 3.3), 13.0, 0.5});
+waypoints.push_back({Eigen::Vector3d(2.5, -1.5, 3.0), 16.0, 0.5});
+waypoints.push_back({Eigen::Vector3d(1.5, -0.5, 2.8), 19.0, 0.5});
+waypoints.push_back({Eigen::Vector3d(0.0, 0.0, 3.0), 21.0, 0.5}); // Center crossing
 
-// Phase 3: Translate horizontally
-waypoints.push_back({Eigen::Vector3d(2.0, 1.0, 3.0), 8.0, 2.0});
+// Left loop (figure-8 mirror)
+waypoints.push_back({Eigen::Vector3d(-1.5, 0.5, 3.2), 24.0, 0.5});
+waypoints.push_back({Eigen::Vector3d(-2.5, 1.5, 3.5), 27.0, 0.5});
+waypoints.push_back({Eigen::Vector3d(-3.0, 0.0, 3.3), 30.0, 0.5});
+waypoints.push_back({Eigen::Vector3d(-2.5, -1.5, 3.0), 33.0, 0.5});
+waypoints.push_back({Eigen::Vector3d(-1.5, -0.5, 2.8), 36.0, 0.5});
 
-// Phase 4: Descend to final position
-waypoints.push_back({Eigen::Vector3d(2.0, 1.0, 2.0), 12.0, 3.0});
+// Return and descend
+waypoints.push_back({Eigen::Vector3d(0.0, 0.0, 3.0), 39.0, 1.0}); // Return to origin
+waypoints.push_back({Eigen::Vector3d(0.0, 0.0, 2.0), 43.0, 2.0}); // Controlled descent
 ```
 
 Each waypoint has:
@@ -570,7 +584,10 @@ Each run creates a new folder with the timestamp, allowing easy comparison betwe
 | `control_efforts.csv` | Controller outputs | time, droneN_tau_xyz, droneN_f_xyz |
 | `gps_measurements.csv` | Noisy GPS readings | time, load_gps_xyz, droneN_gps_xyz |
 | `estimator_outputs.csv` | State estimates | time, load_est_xyz_vxyz, droneN_est_xyz_vxyz |
-| `reference_trajectory.csv` | Desired trajectory | time, ref_xyz, ref_vxyz, ref_axyz |
+| `imu_measurements.csv` | 6-DOF IMU data | time, droneN_ax/ay/az/wx/wy/wz |
+| `barometer_measurements.csv` | Altitude readings | time, droneN_altitude |
+| `attitude_data.csv` | Orientation data | time, droneN_roll/pitch/yaw, des_qwxyz, err_xyz |
+| `wind_disturbance.csv` | Wind velocities | time, wind_vx/vy/vz |
 
 ### Configuration File Example
 
@@ -579,7 +596,7 @@ Each run creates a new folder with the timestamp, allowing easy comparison betwe
 # Generated at: 20260203_070642
 
 simulation_time_step = 0.000200
-simulation_duration = 15.000000
+simulation_duration = 50.000000
 num_quadcopters = 3
 quadcopter_mass = 1.500000
 payload_mass = 3.000000

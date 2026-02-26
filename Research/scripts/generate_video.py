@@ -13,6 +13,7 @@ Usage:
 
 import argparse
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -24,6 +25,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.animation import FuncAnimation, FFMpegWriter
 from mpl_toolkits.mplot3d import Axes3D
+from PIL import Image, ImageDraw, ImageFont
 
 # Import helpers from figure generator
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -133,9 +135,311 @@ def load_all_data(data_dir):
 
 
 # ---------------------------------------------------------------------------
+# Meshcat MP4 reader and composite helpers
+# ---------------------------------------------------------------------------
+class MeshcatVideoReader:
+    """Streaming reader for a pre-recorded Drake Meshcat MP4.
+
+    Decodes frames on demand via ffmpeg subprocess.  Maps frame indices
+    to simulation time using the linear mapping
+        t_sim = frame_idx * sim_duration / total_frames.
+    """
+
+    def __init__(self, mp4_path: str, sim_duration: float = 50.0):
+        self.mp4_path = mp4_path
+        self.sim_duration = sim_duration
+
+        # Probe video metadata.
+        probe = subprocess.check_output([
+            'ffprobe', '-v', 'error', '-select_streams', 'v:0',
+            '-show_entries', 'stream=width,height',
+            '-of', 'csv=p=0', mp4_path,
+        ]).decode().strip()
+        parts = probe.split(',')
+        self.width = int(parts[0])
+        self.height = int(parts[1])
+
+        # Count frames.
+        self.total_frames = int(subprocess.check_output([
+            'ffprobe', '-v', 'error', '-select_streams', 'v:0',
+            '-count_packets', '-show_entries', 'stream=nb_read_packets',
+            '-of', 'csv=p=0', mp4_path,
+        ]).decode().strip())
+
+        self.sim_times = np.linspace(0, sim_duration, self.total_frames)
+        self._frames = None  # lazy-loaded cache
+
+    def _load_all(self):
+        """Decode all frames into memory (called once on first access)."""
+        proc = subprocess.Popen(
+            ['ffmpeg', '-i', self.mp4_path,
+             '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+        frame_bytes = self.width * self.height * 3
+        frames = []
+        while True:
+            raw = proc.stdout.read(frame_bytes)
+            if len(raw) < frame_bytes:
+                break
+            frames.append(
+                np.frombuffer(raw, dtype=np.uint8).reshape(
+                    self.height, self.width, 3).copy()
+            )
+        proc.wait()
+        self._frames = frames
+
+    def frame_at_time(self, t_sim: float) -> np.ndarray:
+        """Return the closest Meshcat frame for the given simulation time."""
+        if self._frames is None:
+            self._load_all()
+        idx = int(np.clip(
+            np.searchsorted(self.sim_times, t_sim),
+            0, len(self._frames) - 1,
+        ))
+        return self._frames[idx]
+
+
+def _try_load_font(size: int, bold: bool = False):
+    """Try to load a TrueType font, fall back to default."""
+    names = (['DejaVuSans-Bold.ttf', 'LiberationSans-Bold.ttf']
+             if bold else ['DejaVuSans.ttf', 'LiberationSans-Regular.ttf'])
+    for name in names:
+        try:
+            return ImageFont.truetype(name, size)
+        except OSError:
+            pass
+    return ImageFont.load_default()
+
+
+def render_telemetry_panel(data, t_now, panel_width=768, panel_height=1080,
+                           dpi=100):
+    """Render the 4 telemetry panels for a single simulation time.
+
+    Returns an (panel_height, panel_width, 3) uint8 numpy array.
+    """
+    fig_w = panel_width / dpi
+    fig_h = panel_height / dpi
+    fig = plt.figure(figsize=(fig_w, fig_h), dpi=dpi)
+    fig.set_facecolor('#1a1a2e')
+
+    gs = gridspec.GridSpec(4, 1, hspace=0.45,
+                           left=0.18, right=0.95, top=0.95, bottom=0.06)
+    ax_tension = fig.add_subplot(gs[0])
+    ax_error = fig.add_subplot(gs[1])
+    ax_wind = fig.add_subplot(gs[2])
+    ax_est = fig.add_subplot(gs[3])
+
+    t = data['t']
+    traj = data['traj']
+    tensions = data['tensions']
+    err_3d = data['err_3d']
+    wind = data['wind']
+    nd = data['num_drones']
+    drone_colors = ALL_DRONE_COLORS[:nd]
+    max_time = t[-1]
+
+    idx = min(np.searchsorted(t, t_now), len(t) - 1)
+    sl = slice(0, idx + 1)
+    t_sl = t[sl]
+
+    wind_idx = min(np.searchsorted(wind['time'].values, t_now), len(wind) - 1)
+    wind_sl = slice(0, wind_idx + 1)
+    wind_t = wind['time'].values[wind_sl]
+
+    # Precompute smoothed mass estimates.
+    from scipy.ndimage import uniform_filter1d
+    gravity = 9.81
+    mass_est = np.zeros((len(t), nd))
+    for q in range(nd):
+        T_mag = tensions[f'rope{q}_mag'].values
+        mass_est[:, q] = uniform_filter1d(T_mag / gravity, size=100)
+
+    # --- Cable tensions ---
+    ax_tension.set_title('Cable Tensions', fontsize=11, pad=4)
+    ax_tension.set_ylabel('Tension (N)')
+    ax_tension.set_xlim(0, max_time)
+    ax_tension.set_ylim(-1, 35)
+    ax_tension.axhline(2.0, color=COLORS['limit'], ls='--', lw=0.8, alpha=0.7)
+    ax_tension.grid(True, alpha=0.3)
+    for q in range(nd):
+        ax_tension.plot(t_sl, tensions[f'rope{q}_mag'].values[sl],
+                        color=drone_colors[q], lw=1.0, label=f'Cable {q}')
+    ax_tension.legend(loc='upper right', framealpha=0.7, fontsize=7)
+
+    # --- Tracking error ---
+    ax_error.set_title('Payload Tracking Error', fontsize=11, pad=4)
+    ax_error.set_ylabel('Error (cm)')
+    ax_error.set_xlim(0, max_time)
+    ax_error.set_ylim(0, 100)
+    ax_error.grid(True, alpha=0.3)
+    ax_error.plot(t_sl, err_3d[sl], color=COLORS['load'], lw=1.0)
+    ax_error.fill_between(t_sl, 0, err_3d[sl], color=COLORS['load'], alpha=0.15)
+    if idx > 100:
+        rmse_now = np.sqrt(np.mean(err_3d[100:idx + 1] ** 2))
+        ax_error.axhline(rmse_now, color='white', ls=':', lw=0.6, alpha=0.5)
+        ax_error.text(max_time * 0.98, rmse_now + 2,
+                      f'RMSE: {rmse_now:.1f} cm', ha='right',
+                      fontsize=8, color='white', alpha=0.8)
+
+    # --- Wind velocity ---
+    ax_wind.set_title('Wind Velocity (Dryden Turbulence)', fontsize=11, pad=4)
+    ax_wind.set_ylabel('Velocity (m/s)')
+    ax_wind.set_xlim(0, max_time)
+    ax_wind.set_ylim(-0.5, 2.5)
+    ax_wind.grid(True, alpha=0.3)
+    if len(wind_t) > 0:
+        ax_wind.plot(wind_t, wind['wind_vx'].values[wind_sl],
+                     color='#56B4E9', lw=1.0, label='$v_{w,x}$')
+        ax_wind.plot(wind_t, wind['wind_vy'].values[wind_sl],
+                     color='#E69F00', lw=1.0, label='$v_{w,y}$')
+        ax_wind.plot(wind_t, wind['wind_vz'].values[wind_sl],
+                     color='#009E73', lw=1.0, label='$v_{w,z}$')
+        w_mag = np.sqrt(wind['wind_vx'].values[wind_sl] ** 2 +
+                        wind['wind_vy'].values[wind_sl] ** 2 +
+                        wind['wind_vz'].values[wind_sl] ** 2)
+        ax_wind.fill_between(wind_t, 0, w_mag, color='#56B4E9', alpha=0.1)
+        ax_wind.plot(wind_t, w_mag, color='white', lw=0.6, ls='--', alpha=0.5)
+    ax_wind.legend(loc='upper right', framealpha=0.7, fontsize=7, ncol=3)
+
+    # --- Mass estimation ---
+    ax_est.set_title('Per-Drone Mass Estimate $\\hat{\\theta}_i$',
+                     fontsize=11, pad=4)
+    ax_est.set_xlabel('Time (s)')
+    ax_est.set_ylabel('$\\hat{\\theta}_i$ (kg)')
+    ax_est.set_xlim(0, max_time)
+    ax_est.set_ylim(0, 3.5)
+    ax_est.axhline(1.0, color='white', ls='--', lw=0.8, alpha=0.5)
+    ax_est.grid(True, alpha=0.3)
+    for q in range(nd):
+        ax_est.plot(t_sl, mass_est[sl, q],
+                    color=drone_colors[q], lw=1.0, label=f'Drone {q}')
+    ax_est.text(max_time * 0.98, 1.15, '$m_L/N = 1.0$ kg',
+                ha='right', fontsize=8, color='white', alpha=0.7)
+
+    fig.canvas.draw()
+    buf = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)
+    buf = buf.reshape(fig.canvas.get_width_height()[::-1] + (4,))
+    frame = buf[:, :, :3].copy()
+    plt.close(fig)
+    return frame
+
+
+def composite_meshcat_telemetry(meshcat_frame, telemetry_frame,
+                                total_width=1920, total_height=1080,
+                                meshcat_ratio=0.6):
+    """Assemble a side-by-side composite: Meshcat (left) + telemetry (right)."""
+    left_w = int(total_width * meshcat_ratio)  # 1152
+    right_w = total_width - left_w             # 768
+
+    composite = np.zeros((total_height, total_width, 3), dtype=np.uint8)
+
+    # Scale the Meshcat frame to fit the left panel (preserve aspect ratio).
+    mc_img = Image.fromarray(meshcat_frame)
+    mc_w, mc_h = mc_img.size
+    scale = min(left_w / mc_w, total_height / mc_h)
+    new_w, new_h = int(mc_w * scale), int(mc_h * scale)
+    mc_resized = np.array(mc_img.resize((new_w, new_h), Image.LANCZOS))
+
+    y_off = (total_height - new_h) // 2
+    x_off = (left_w - new_w) // 2
+    composite[y_off:y_off + new_h, x_off:x_off + new_w] = mc_resized
+
+    # Place telemetry panel on the right.
+    tel_h, tel_w = telemetry_frame.shape[:2]
+    composite[:min(tel_h, total_height), left_w:left_w + min(tel_w, right_w)] = \
+        telemetry_frame[:min(tel_h, total_height), :min(tel_w, right_w)]
+
+    return composite
+
+
+def add_overlays(frame, t_now, data):
+    """Draw Drake branding and time readout onto the composite frame."""
+    img = Image.fromarray(frame)
+    draw = ImageDraw.Draw(img)
+    h, w = frame.shape[:2]
+
+    # Scale font sizes relative to 1080p baseline.
+    s = h / 1080.0
+    font_title = _try_load_font(max(int(22 * s), 10), bold=True)
+    font_time = _try_load_font(max(int(16 * s), 8), bold=True)
+    font_small = _try_load_font(max(int(13 * s), 7))
+
+    nd = data['num_drones']
+    phase = get_phase_label(t_now)
+
+    pad = int(20 * s)
+
+    # Top-left: title.
+    draw.text((pad, int(12 * s)), 'Drake MeshcatVisualizer',
+              fill=(255, 255, 255), font=font_title)
+    draw.text((pad, int(42 * s)),
+              f'N = {nd} Quadrotors   |   t = {t_now:.1f} s   |   {phase}',
+              fill=(200, 200, 200), font=font_time)
+
+    # Bottom-left: branding.
+    draw.text((pad, h - int(28 * s)),
+              'Simulated in Drake  |  Bead-chain cables  |  '
+              'Dryden wind turbulence  |  ESKF sensor fusion',
+              fill=(150, 150, 150), font=font_small)
+
+    return np.array(img)
+
+
+def render_meshcat_composite(data, meshcat_reader, fps=30,
+                             start_time=0.0, duration=None, speed=1.0,
+                             out_width=1920, out_height=1080, dpi=100):
+    """Render the side-by-side Meshcat + telemetry composite scene.
+
+    Args:
+        data: simulation data dict from ``load_all_data``.
+        meshcat_reader: ``MeshcatVideoReader`` instance.
+        fps: output video frame rate.
+        start_time: simulation start time for the scene.
+        duration: scene duration in simulation seconds (None = full sim).
+        speed: playback speed multiplier (1.0 = real-time).
+        out_width: output frame width in pixels.
+        out_height: output frame height in pixels.
+        dpi: matplotlib dpi for the telemetry panel.
+
+    Returns:
+        List of (out_height, out_width, 3) uint8 numpy arrays.
+    """
+    sim_duration = data['t'][-1]
+    if duration is None:
+        duration = sim_duration - start_time
+    end_time = min(start_time + duration, sim_duration)
+
+    meshcat_ratio = 0.6
+    tel_w = int(out_width * (1 - meshcat_ratio))
+    tel_h = out_height
+
+    dt_render = speed / fps
+    render_times = np.arange(start_time, end_time, dt_render)
+
+    frames = []
+    for frame_idx, t_now in enumerate(render_times):
+        mc_frame = meshcat_reader.frame_at_time(t_now)
+        tel_frame = render_telemetry_panel(data, t_now,
+                                           panel_width=tel_w,
+                                           panel_height=tel_h, dpi=dpi)
+        comp = composite_meshcat_telemetry(mc_frame, tel_frame,
+                                           total_width=out_width,
+                                           total_height=out_height)
+        comp = add_overlays(comp, t_now, data)
+        frames.append(comp)
+
+        if frame_idx % 50 == 0:
+            print(f'  Meshcat composite {frame_idx}/{len(render_times)} '
+                  f'(t={t_now:.1f}s)')
+
+    return frames
+
+
+# ---------------------------------------------------------------------------
 # Scene: Title card
 # ---------------------------------------------------------------------------
-def render_title_card(fig, duration_frames, fps):
+def render_title_card(fig, duration_frames, fps, data=None):
     """Render a static title card."""
     fig.clear()
     fig.set_facecolor('#1a1a2e')
@@ -145,21 +449,34 @@ def render_title_card(fig, duration_frames, fps):
     ax.axis('off')
     ax.set_facecolor('#1a1a2e')
 
+    nd = data['num_drones'] if data else 3
+    payload_mass = float(data['cfg'].get('payload_mass', 3.0)) if data else 3.0
+
+    # Compute RMSE from data if available
+    if data is not None:
+        err = data['err_3d']
+        t = data['t']
+        mask = t > 6.0
+        rmse = np.sqrt(np.mean(err[mask]**2))
+        rmse_str = f'Tracking RMSE: {rmse:.1f} cm'
+    else:
+        rmse_str = 'Tracking RMSE: 23.7 cm'
+
     ax.text(0.5, 0.72, 'GPAC: Geometric Position and Attitude Control',
             ha='center', va='center', fontsize=18, fontweight='bold',
             color='white')
     ax.text(0.5, 0.62, 'Decentralized Cooperative Aerial Transport',
             ha='center', va='center', fontsize=14, color='#a0c4ff')
     ax.text(0.5, 0.48,
-            '3 Quadrotors  |  3.0 kg Payload  |  Flexible Bead-Chain Cables\n'
+            f'{nd} Quadrotors  |  {payload_mass:.1f} kg Payload  |  Flexible Bead-Chain Cables\n'
             'ESKF Sensor Fusion  |  Dryden Wind Turbulence  |  CBF Safety Filter',
             ha='center', va='center', fontsize=10, color='#999999',
             linespacing=1.6)
     ax.text(0.5, 0.32, 'IEEE IROS 2026  |  Supplementary Video',
             ha='center', va='center', fontsize=11, color='#e0e0e0')
     ax.text(0.5, 0.18,
-            'Tracking RMSE: 23.7 $\\pm$ 1.5 cm (3.4% of workspace)\n'
-            '15-seed Monte Carlo  |  < 1 MFLOP/s per agent',
+            f'{rmse_str}\n'
+            '< 1 MFLOP/s per agent  |  No inter-agent communication',
             ha='center', va='center', fontsize=9, color='#777777',
             linespacing=1.5)
 
@@ -691,12 +1008,13 @@ def render_end_card(fig, duration_frames, data):
     ax.text(0.5, 0.78, 'Key Results', ha='center', va='center',
             fontsize=20, fontweight='bold', color='white')
 
+    nd = data['num_drones']
     metrics = [
-        f'Payload 3D RMSE:  {rmse:.1f} cm  (3.4% of workspace diagonal)',
+        f'N = {nd} Quadrotors  |  Payload 3D RMSE:  {rmse:.1f} cm',
         f'Peak Error:  {max_err:.1f} cm  (during aggressive cornering)',
-        f'Quadrotor ESKF RMSE:  6.9 cm  (3x GPS noise floor)',
-        f'CBF Active:  1.7-3.2% of flight time',
-        f'Mass Estimation Convergence:  ~8 s',
+        f'Fully Decentralized  |  No inter-agent communication',
+        f'Adaptive Mass Estimation via Concurrent Learning',
+        f'CBF Safety Filter  |  Flexible Bead-Chain Cables',
         f'Computation:  < 1 MFLOP/s per agent',
     ]
 
@@ -736,6 +1054,11 @@ def main():
                         help='Quick preview: lower resolution, 4x speed')
     parser.add_argument('--data-dir-5q', type=str, default=None,
                         help='5-quad simulation log (for scalability scene)')
+    parser.add_argument('--meshcat-mp4', type=str, default=None,
+                        help='Path to pre-recorded Drake Meshcat MP4 '
+                             '(auto-discovered if omitted)')
+    parser.add_argument('--no-meshcat', action='store_true',
+                        help='Disable Meshcat frames; use matplotlib 3D only')
     args = parser.parse_args()
 
     # Resolve data directory
@@ -767,6 +1090,10 @@ def main():
         dpi = 100
         figsize = (19.20, 10.80)
 
+    # Canonical output resolution (must match across all scenes).
+    out_width = int(figsize[0] * dpi)
+    out_height = int(figsize[1] * dpi)
+
     fps = args.fps
 
     print(f'Data:   {args.data_dir}')
@@ -782,25 +1109,70 @@ def main():
     print(f'  Duration: {data["t"][-1]:.1f} s, {len(data["t"])} samples')
     print()
 
+    # Auto-discover Meshcat MP4 if not explicitly provided.
+    meshcat_reader = None
+    if not args.no_meshcat:
+        mc_mp4 = args.meshcat_mp4
+        if mc_mp4 is None:
+            # Try common locations relative to data-dir.
+            candidates = [
+                Path(args.data_dir).parent.parent / 'sim_recording.mp4',
+                Path(args.data_dir).parent / 'sim_recording.mp4',
+                Path(args.data_dir) / 'sim_recording.mp4',
+                Path(__file__).resolve().parent.parent / 'outputs' / 'sim_recording.mp4',
+            ]
+            for c in candidates:
+                if c.exists():
+                    mc_mp4 = str(c)
+                    break
+        if mc_mp4 and os.path.isfile(mc_mp4):
+            print(f'Meshcat MP4: {mc_mp4}')
+            meshcat_reader = MeshcatVideoReader(mc_mp4, data['t'][-1])
+            print(f'  {meshcat_reader.total_frames} frames, '
+                  f'{meshcat_reader.width}x{meshcat_reader.height}')
+        else:
+            print('WARNING: No Meshcat MP4 found. '
+                  'Using matplotlib 3D fallback (--meshcat-mp4 to specify).')
+    print()
+
     all_frames = []
 
     # --- Scene 1: Title card (3 seconds) ---
     print('Rendering title card...')
     title_fig = plt.figure(figsize=figsize, dpi=dpi)
-    title_frames = render_title_card(title_fig, duration_frames=fps * 3, fps=fps)
+    title_frames = render_title_card(title_fig, duration_frames=fps * 3, fps=fps,
+                                     data=data)
     all_frames.extend(title_frames)
     plt.close(title_fig)
     print(f'  {len(title_frames)} frames')
 
-    # --- Scene 2: Drake-style 3D view for N=3 (20s at 1x speed) ---
-    print(f'Rendering Drake view N={data["num_drones"]} (20s @ 1x from t=15s)...')
-    drake_frames = render_drake_view(data, fps=fps, start_time=15.0, duration=20.0)
+    # --- Scene 2: Drake Meshcat composite (or matplotlib fallback) ---
+    if meshcat_reader is not None:
+        print(f'Rendering Meshcat composite N={data["num_drones"]} '
+              f'(20s @ 1x from t=15s)...')
+        drake_frames = render_meshcat_composite(
+            data, meshcat_reader, fps=fps,
+            start_time=15.0, duration=20.0, speed=1.0,
+            out_width=out_width, out_height=out_height, dpi=dpi)
+    else:
+        print(f'Rendering Drake view N={data["num_drones"]} '
+              f'(20s @ 1x from t=15s)...')
+        drake_frames = render_drake_view(
+            data, fps=fps, start_time=15.0, duration=20.0)
     all_frames.extend(drake_frames)
     print(f'  {len(drake_frames)} frames')
 
-    # --- Scene 3: Full mission with telemetry (N=3) ---
-    print(f'Rendering N={data["num_drones"]} mission ({args.speed}x speed)...')
-    mission_frames = render_mission(data, fps=fps, speed=args.speed)
+    # --- Scene 3: Full mission with Meshcat + telemetry (or matplotlib) ---
+    if meshcat_reader is not None:
+        print(f'Rendering Meshcat composite N={data["num_drones"]} '
+              f'full mission ({args.speed}x speed)...')
+        mission_frames = render_meshcat_composite(
+            data, meshcat_reader, fps=fps, speed=args.speed,
+            out_width=out_width, out_height=out_height, dpi=dpi)
+    else:
+        print(f'Rendering N={data["num_drones"]} mission '
+              f'({args.speed}x speed)...')
+        mission_frames = render_mission(data, fps=fps, speed=args.speed)
     all_frames.extend(mission_frames)
     print(f'  {len(mission_frames)} frames')
 
@@ -860,8 +1232,7 @@ def main():
 
     h, w = all_frames[0].shape[:2]
 
-    # Use ffmpeg subprocess for reliable H.264 encoding
-    import subprocess
+    # Use ffmpeg subprocess for reliable H.264 encoding.
     ffmpeg_cmd = [
         'ffmpeg', '-y',
         '-f', 'rawvideo',

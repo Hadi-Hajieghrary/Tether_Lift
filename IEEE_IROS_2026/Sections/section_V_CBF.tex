@@ -41,11 +41,7 @@ The safety filter is solved at each control cycle:
 with $\lambda = 100$ penalizing relaxation. Since hard forward invariance of $\{h \geq 0\}$ is unrealistic under disturbances, we use Input-to-State Safety (ISSf), coupling the robustness margin to the ESO estimate; i.e., $\dot{h}_j + \alpha_j h_j \geq -\mu_{\text{base}} - \kappa_d\norm{\hat{d}_i}$,
 with $\mu_{\text{base}} = 2.0$, $\kappa_d = 1.5$. When the ESO reports large disturbances, the margin grows and the filter activates earlier. The steady-state violation bound is $h_j(t) \geq -(\mu_{\text{base}} + \kappa_d\bar{d})/\alpha_j$
 
-Tautness requires $\dot{T}_i$, estimated via a second-order Butterworth low-pass filter ($f_c = 15$\,Hz, $-40$\,dB/dec) on finite-difference tension rate. This attenuates cable vibrations ($\sim$55\,Hz) by $\sim$22\,dB with $\sim$11\,ms delay.
-
 Implementation in this paper uses sequential gradient projection with priority ordering (tautness $>$ angle $>$ tilt $>$ swing $>$ collision) rather than a full QP. This approximation equals~\eqref{eq:cbf_qp} when at most one constraint is active---typical, as the CBF activates only 1.7--3.2\% of the time. Formal ISSf guarantees the bound on $h_j(t)$, therefore holds under single-constraint activation; under simultaneous multi-constraint activation ($<$0.3\% of time), only priority-ordered feasibility is ensured. The priority ordering reflects failure severity: tautness ranks highest because cable slack causes immediate loss of controllability, while collision has the largest geometric margin ($d_{\min} = 0.8$\,m vs.\ observed $\geq 1.04$\,m). Slack variables $\delta_j$ ensure lower-priority constraints degrade gracefully. Per-agent cost is $O(N_c)$ with $N_c = 6$ constraints ($\sim$1200\,FLOPs/cycle).
-
-\subsection{Compatibility with Geometric Attitude Control}
 
 The safety filter modifies force direction, changing the desired rotation $R_d$. A critical requirement is that this perturbation not exit the geometric controller's stability region.
 

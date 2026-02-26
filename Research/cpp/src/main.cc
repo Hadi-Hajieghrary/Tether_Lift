@@ -122,6 +122,7 @@ namespace quad_rope_lift
         bool headless = false;
         double cli_duration = 50.0;
         int cli_num_quads = 3;
+        std::string cli_output_dir;  // empty = auto
 
         for (int i = 1; i < argc; ++i) {
             if (std::strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
@@ -132,14 +133,26 @@ namespace quad_rope_lift
                 cli_duration = std::atof(argv[++i]);
             } else if (std::strcmp(argv[i], "--num-quads") == 0 && i + 1 < argc) {
                 cli_num_quads = std::atoi(argv[++i]);
+            } else if (std::strcmp(argv[i], "--output-dir") == 0 && i + 1 < argc) {
+                cli_output_dir = argv[++i];
             } else if (std::strcmp(argv[i], "--help") == 0) {
-                std::cout << "Usage: ./quad_rope_lift [--seed N] [--headless] [--duration T] [--num-quads N]\n"
+                std::cout << "Usage: ./quad_rope_lift [--seed N] [--headless] [--duration T] [--num-quads N] [--output-dir DIR]\n"
                           << "  --seed N        Random seed (default: 42)\n"
                           << "  --headless      Disable visualization\n"
                           << "  --duration T    Simulation duration [s] (default: 50)\n"
-                          << "  --num-quads N   Number of quadcopters (default: 3)\n";
+                          << "  --num-quads N   Number of quadcopters (default: 3)\n"
+                          << "  --output-dir D  Base output directory (default: ../outputs)\n";
                 return 0;
             }
+        }
+
+        // Resolve output base directory (relative to binary or absolute).
+        std::string output_base;
+        if (!cli_output_dir.empty()) {
+            output_base = cli_output_dir;
+        } else {
+            // Default: <project_root>/outputs  (works in devcontainer and locally)
+            output_base = "/workspaces/Tether_Lift/outputs";
         }
 
         // =========================================================================
@@ -953,7 +966,7 @@ namespace quad_rope_lift
         // -------------------------------------------------------------------------
 
         tether_lift::SimulationDataLogger::Params logger_params;
-        logger_params.base_output_dir = "/workspaces/Tether_Lift/outputs/logs";
+        logger_params.base_output_dir = output_base + "/logs";
         logger_params.log_period = 0.01;  // 100 Hz logging
         logger_params.num_quadcopters = num_quadcopters;
 
@@ -1292,8 +1305,9 @@ namespace quad_rope_lift
             meshcat->StopRecording();
             meshcat->PublishRecording();  // Makes it playable in browser
 
-            // Export to static HTML file
-            const std::string html_path = "/workspaces/Tether_Lift/Research/outputs/sim_recording.gif";
+            // Export to static HTML file (one per configuration).
+            const std::string html_path = output_base + "/sim_recording_n" +
+                std::to_string(num_quadcopters) + ".html";
             std::ofstream html_file(html_path);
             html_file << meshcat->StaticHtml();
             html_file.close();

@@ -365,7 +365,7 @@ title('Accelerometer Noise Characterization')
 
 | Frame | Description | Convention |
 |-------|-------------|------------|
-| **World (W)** | Inertial NED frame | X=East, Y=North, Z=Up |
+| **World (W)** | Inertial frame | X=East, Y=North, Z=Up |
 | **Body (B)** | Quadcopter body frame | X=Forward, Y=Left, Z=Up |
 | **Load (L)** | Payload body frame | Attached at load center |
 

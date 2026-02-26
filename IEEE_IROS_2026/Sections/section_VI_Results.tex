@@ -1,7 +1,7 @@
 % !TEX root = ../Main.tex
-GPAC is validated in Drake-based~\cite{drake2024} multibody simulation (parameters in Table~\ref{tab:params}). Physics runs at 5000\,Hz with semi-implicit Euler, resolving cable vibration ($\sim$55\,Hz) with $90\times$ oversampling. Cable rest lengths are asymmetric ([0.914, 1.105, 0.995]\,m, up to 19\% variation). Multi-rate timing matches the GPAC layer structure. Dryden wind and the full sensor suite complete the environment. All loops close through the ESKF, not ground truth, ensuring sensor-in-the-loop realism.
+We validated GPAC using a Drake-based~\cite{drake2024} multibody simulation, with parameters listed in Table~\ref{tab:params}. The physics engine runs at 5000 Hz using a semi-implicit Euler method, and cable vibrations (around 55 Hz) are resolved with 90 times oversampling. The cable rest lengths are asymmetric ([0.914, 1.105, 0.995] m), showing up to 19\% variation. The multi-rate timing is set to match the GPAC layer structure. The simulation environment includes Dryden wind and a full sensor suite. All control loops are closed using the ESKF rather than ground truth, ensuring sensor-in-the-loop realism.
 
-The 50\,s benchmark exercises all hazards: pre-lift hover with slack-to-taut transitions, ascent with impulsive loading, figure-eight maneuvering with aggressive cornering that excites pendular swing, and controlled descent. The figure-eight spans a $6.0 \times 3.0$\,m workspace at payload altitudes of 1.6--2.3\,m, with path length exceeding 20\,m. Minimum-jerk interpolation enforces $\norm{v_d}\!\leq\!1$\,m/s, $\norm{a_d}\!\leq\!2$\,m/s$^2$.
+The overall 3D RMSE is 22.9 cm, which is 3.3\% of the workspace diagonal and well within one cable length. This result is achieved without centralized coordination, even with wind disturbance and 19\% cable asymmetry. A 15-seed Monte Carlo test confirms the results are representative (6.3\% CV). Most of the error is horizontal because pendulum dynamics amplify lateral disturbances, while vertical error is well controlled through direct thrust-altitude coupling and barometer-aided estimation. The largest errors occur during figure-eight cornering, but performance improves as concurrent learning collects more data.
 
 \begin{figure}[t]
   \centering
@@ -9,10 +9,6 @@ The 50\,s benchmark exercises all hazards: pre-lift hover with slack-to-taut tra
   \caption{3D trajectory of the load and the quadcopters. The max velocity of the load is 1\,m/s.}
   \label{fig:trajectory_3d}
 \end{figure}
-
-\subsection{Tracking Performance}
-
-Table~\ref{tab:tracking} summarizes payload tracking errors for the baseline seed. The overall 3D RMSE of 22.9\,cm corresponds to 3.3\% of the workspace diagonal---well within one cable length. This is achieved without centralized coordination, under wind disturbance and 19\% cable asymmetry. A 15-seed Monte Carlo confirms representativeness (6.3\% CV). Horizontal error dominates because pendulum dynamics amplify lateral disturbances, while vertical error is well-controlled via direct thrust--altitude coupling and barometer-aided estimation. Peak errors occur during figure-eight cornering; performance improves as concurrent learning accumulates data.
 
 \begin{table}[t]
   \centering
@@ -42,13 +38,6 @@ Table~\ref{tab:tracking} summarizes payload tracking errors for the baseline see
   \vspace{-5pt}
 \end{figure}
 
-\subsection{Estimation and Adaptive Convergence}
-
-The ESKF achieves quadrotor position RMSE consistent with the GPS noise floor, with increased error during cornering. Low variance across Monte Carlo seeds confirms that ESKF accuracy is determined by sensor noise rather than cable geometry. The decentralized load estimator (49.5\,cm RMSE) is $4\times$ worse than a centralized oracle (12.4\,cm), reflecting the single-cable observability limitation discussed in Section~\ref{sec:estimation}. The centralized baseline requires $\sim$29\,kbps bandwidth.
-
-Concurrent learning converges within $\sim$8\,s, accumulating $\sim$30 informative samples during ascent. Without concurrent learning ($\rho = 0$), settling extends significantly with larger oscillation (see Table~\ref{tab:failure_modes}).
-
-
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.84\columnwidth]{Figures/fig_estimation_error.png}
@@ -57,9 +46,15 @@ Concurrent learning converges within $\sim$8\,s, accumulating $\sim$30 informati
   \vspace{-5pt}
 \end{figure}
 
-Table~\ref{tab:failure_modes} presents the hazard-to-mitigation mapping with constraint enforcement data. Cable angle CBF activates most frequently; the observed excursion ($48.1^\circ$ vs.\ $34.4^\circ$ limit) and swing rate ($1.6$ vs.\ $1.5$\,rad/s) are consistent with the ISSf bound, which predicts margin violations of this magnitude under peak disturbance. Tilt and collision constraints are never violated ($\geq 1.04$\,m clearance, 30\% above $d_{\min}$). The CBF activates infrequently and increases tracking RMSE by only 2\%.
+Table~\ref{tab:tracking} shows payload tracking errors for the baseline seed. The overall 3D RMSE is 22.9 cm, which is 3.3\% of the workspace diagonal and well within one cable length. This result is achieved without centralized coordination, even with wind disturbance and 19\% cable asymmetry. A 15-seed Monte Carlo test confirms the results are representative (6.3\% CV). Most of the error is horizontal because pendulum dynamics amplify lateral disturbances, while vertical error remains low thanks to direct thrust-altitude control and barometer-aided estimation. The largest errors occur during figure-eight cornering, but performance improves as concurrent learning collects more data.
 
-Table~\ref{tab:ablation} isolates each component's contribution. The ESO provides the largest benefit (+43\% degradation when removed), followed by concurrent learning (+33\%). This ranking indicates that wind disturbance rejection is the dominant contributor to tracking accuracy in this scenario, consistent with the Dryden turbulence intensities used. The CBF imposes minimal tracking cost while substantially reducing peak cable angles. The centralized estimation baseline reduces RMSE by 22\% but requires inter-agent communication.
+The ESKF gives quadrotor position RMSE that matches the GPS noise floor, though errors increase during cornering. Low variance across Monte Carlo seeds shows that ESKF accuracy depends on sensor noise, not cable geometry. The decentralized load estimator has a 49.5 cm RMSE, which is 4 times worse than the centralized oracle's 12.4 cm RMSE. This difference is due to the single-cable observability limit discussed in Section~\ref{sec:estimation}. The centralized baseline needs about 29 kbps of bandwidth.
+
+Concurrent learning converges in about 8 seconds, collecting around 30 useful samples during ascent. Without concurrent learning ($\rho = 0$), settling takes much longer and oscillations are larger (see Table~\ref{tab:failure_modes}).
+
+Table~\ref{tab:failure_modes} shows the hazard-to-mitigation mapping and constraint enforcement data. The cable angle CBF is activated most often; the observed excursion (48.1° compared to the 34.4° limit) and swing rate (1.6 vs. 1.5 rad/s) match the ISSf bound, which predicts margin violations of this size during peak disturbance. Tilt and collision constraints are never violated (clearance is at least 1.04 m, which is 30\% above $d_{\min}$). The CBF is rarely activated and only increases tracking RMSE by 2\%.
+
+Table~\ref{tab:ablation} breaks down each component's impact. The ESO provides the greatest benefit, as removing it results in a 43\% drop in performance. Concurrent learning is next, with a 33\% decrease. This order shows that handling wind disturbance is the main factor affecting tracking accuracy here, which aligns with the Dryden turbulence intensities used. The CBF has little effect on tracking cost but greatly reduces peak cable angles. The centralized estimation baseline lowers RMSE by 22\%, but it requires agents to communicate.
 
 \begin{table}[t]
   \centering
